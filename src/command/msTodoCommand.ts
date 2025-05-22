@@ -288,7 +288,16 @@ export async function getTask(
 
                 // Load from the delta cache file and pull the task from the cache.
                 const cachedTasksDelta = await getDeltaCache(plugin);
-                const returnedTask = cachedTasksDelta?.allTasks.find((task) => task.id === todo.id);
+                let returnedTask: TodoTask | undefined;
+                if (cachedTasksDelta) {
+                    for (const list of cachedTasksDelta.allLists || []) {
+                        const foundTask = list.allTasks.find(task => task.id === todo.id);
+                        if (foundTask) {
+                            returnedTask = foundTask;
+                            break;
+                        }
+                    }
+                }
 
                 if (returnedTask) {
                     todo.updateFromTodoTask(returnedTask);
@@ -307,7 +316,9 @@ export async function getTask(
 }
 
 async function getDeltaCache(plugin: MsTodoSync) {
-    const cachePath = `${plugin.app.vault.configDir}/mstd-tasks-delta.json`;
+    // 使用与 msToDoActions.ts 相同的缓存路径格式
+    const pluginId = plugin.manifest.id;
+    const cachePath = `${plugin.app.vault.configDir}/plugins/${pluginId}/mstd-tasks-delta.json`;
     const adapter: DataAdapter = plugin.app.vault.adapter;
     let cachedTasksDelta: TasksDeltaCollection | undefined;
 
@@ -326,7 +337,9 @@ export async function getTaskDelta(todoApi: TodoApi, listId: string | undefined,
         return;
     }
 
-    const cachePath = `${plugin.app.vault.configDir}/mstd-tasks-delta.json`;
+    // 使用与 msToDoActions.ts 相同的缓存路径格式
+    const pluginId = plugin.manifest.id;
+    const cachePath = `${plugin.app.vault.configDir}/plugins/${pluginId}/mstd-tasks-delta.json`;
     const adapter: DataAdapter = plugin.app.vault.adapter;
     if (reset) {
         await adapter.remove(cachePath);
@@ -540,10 +553,25 @@ export async function getAllTasksInList(
     await getTaskDelta(todoApi, listId, plugin);
     const cachedTasksDelta = await getDeltaCache(plugin);
 
-    cachedTasksDelta?.allTasks.sort((a, b) => (a.status === 'completed' ? 1 : -1));
+    if (!cachedTasksDelta) {
+        userNotice.showMessage('No tasks found in cache');
+        return;
+    }
 
-    const lines = cachedTasksDelta?.allTasks
-        ?.filter((task) => task.status !== 'completed')
+    // 修复: 从 ListsDeltaCollection 中正确获取任务
+    // 首先找到匹配的列表
+    const targetList = cachedTasksDelta.allLists?.find(list => list.listId === listId);
+    if (!targetList) {
+        userNotice.showMessage('List not found in cache');
+        return;
+    }
+
+    // 对任务进行排序
+    targetList.allTasks.sort((a, b) => (a.status === 'completed' ? 1 : -1));
+
+    // 处理任务
+    const lines = targetList.allTasks
+        .filter((task) => task.status !== 'completed')
         .map((task) => {
             const formattedCreateDate = globalThis
                 .moment(task.createdDateTime)
@@ -621,27 +649,44 @@ function stripHtml(html: string): string {
 export async function createTodayTasks(todoApi: TodoApi, settings: IMsTodoSyncSettings, editor?: Editor) {
     userNotice.showMessage('Getting Microsoft To Do tasks for today', 3000);
     const now = globalThis.moment();
-    const pattern = `status ne 'completed' or completedDateTime/dateTime ge '${now.format('yyyy-MM-DD')}'`;
-    const taskLists = await todoApi.getLists(pattern);
+    
+    // 获取所有列表，不传递参数
+    const taskLists = await todoApi.getLists();
     if (!taskLists || taskLists.length === 0) {
         userNotice.showMessage('Task list is empty');
         return;
     }
+    
+    // 创建后续处理任务的方式需要修改，因为 TodoTaskList 不包含任务信息
+    // 需要为每个列表获取今天的任务
+    const listsWithTasks = await Promise.all(
+        taskLists.map(async (list) => {
+            if (!list.id) return { ...list, tasks: [] };
+            
+            // 使用 getListTasks 并传递过滤条件
+            const pattern = `status ne 'completed' or completedDateTime/dateTime ge '${now.format('yyyy-MM-DD')}'`;
+            const tasks = await todoApi.getListTasks(list.id, pattern);
+            return { 
+                ...list, 
+                tasks: tasks || [] 
+            };
+        })
+    );
 
-    const segments = taskLists
+    const segments = listsWithTasks
         .map((taskList) => {
             if (!taskList.tasks || taskList.tasks.length === 0) {
                 return;
             }
 
-            taskList.tasks.sort((a, b) => (a.status == 'completed' ? 1 : -1));
+            taskList.tasks.sort((a, b) => (a.status === 'completed' ? 1 : -1));
             const lines = taskList.tasks?.map((task) => {
                 const formattedCreateDate = globalThis
                     .moment(task.createdDateTime)
                     .format(settings.displayOptions_DateFormat);
-                const done = task.status == 'completed' ? 'x' : ' ';
+                const done = task.status === 'completed' ? 'x' : ' ';
                 const createDate =
-                    formattedCreateDate == now.format(settings.displayOptions_DateFormat)
+                    formattedCreateDate === now.format(settings.displayOptions_DateFormat)
                         ? ''
                         : `${settings.displayOptions_TaskCreatedPrefix}[[${formattedCreateDate}]]`;
                 const body = task.body?.content ? `${settings.displayOptions_TaskBodyPrefix}${task.body.content}` : '';

@@ -31,8 +31,13 @@ export class MsTodoActions {
         this.settings = settingsManager.settings;
         this.plugin = plugin;
         this.todoApi = todoApi;
-        const pluginPath = this.plugin.manifest.dir;
-        this.deltaCachePath = `${pluginPath}/mstd-tasks-delta.json`;
+        
+        // 修改缓存路径使用 pluginId 而不是 dir，避免路径问题
+        const pluginId = this.plugin.manifest.id;
+        // 确保使用统一的缓存位置 - 使用 configDir 而非 dir
+        this.deltaCachePath = `${this.plugin.app.vault.configDir}/plugins/${pluginId}/mstd-tasks-delta.json`;
+        
+        this.logger.info(`Initialized MsTodoActions with delta cache path: ${this.deltaCachePath}`);
     }
 
     /**
@@ -550,8 +555,11 @@ export class MsTodoActions {
                     // Check for a list id in the settings.
                     let listId = this.settingsManager.settings.todoListSync.listId;
                     if (todo.listName) {
-                        // Lookup the list id from the cache using the list name.
-                        const list = cachedTasksDelta.allLists.find((l) => l.name === todo.listName);
+                        // 改进列表名称匹配逻辑，使用不区分大小写的比较，并支持微软自动重命名的格式（如"列表名 (1)"）
+                        const list = cachedTasksDelta.allLists.find((l) => 
+                            l.name.toLowerCase() === todo.listName?.toLowerCase() || 
+                            l.name.toLowerCase().startsWith(todo.listName?.toLowerCase() + ' (')
+                        );
                         listId = list?.listId;
                         if (!listId) {
                             if (this.settingsManager.settings.todo_CreateToDoListIfMissing) {
@@ -562,6 +570,16 @@ export class MsTodoActions {
                                     this.userNotice.showMessage(t('Error_UnableToCreateList'));
                                     return;
                                 }
+                                
+                                // 创建列表后立即更新本地缓存
+                                if (newTaskList.id && newTaskList.displayName) {
+                                    cachedTasksDelta.allLists.push(
+                                        new TasksDeltaCollection([], '', newTaskList.id, newTaskList.displayName)
+                                    );
+                                    await this.setDeltaCache(cachedTasksDelta);
+                                    this.logger.info(`Added new list to cache: ${newTaskList.displayName} (${newTaskList.id})`);
+                                }
+                                
                                 todo.listId = newTaskList.id ?? '';
                                 listId = todo.listId;
                             } else {
@@ -715,9 +733,18 @@ export class MsTodoActions {
             await this.resetDeltaCache();
         }
 
+        // 增加日志以确认缓存文件路径
+        this.logger.debug(`Using delta cache path: ${this.deltaCachePath}`);
+        
+        // 检查缓存文件是否存在
+        const adapter: DataAdapter = this.plugin.app.vault.adapter;
+        const cacheExists = await adapter.exists(this.deltaCachePath);
+        this.logger.debug(`Delta cache file exists: ${cacheExists}`);
+
         let cachedTasksDelta = await this.getDeltaCache();
 
         if (!cachedTasksDelta) {
+            this.logger.info('Cache not found, creating new cache');
             cachedTasksDelta = new ListsDeltaCollection([]);
 
             const allToDoLists = await this.todoApi.getLists();
@@ -728,8 +755,15 @@ export class MsTodoActions {
             for (const list of allToDoLists) {
                 if (list.id && list.displayName) {
                     cachedTasksDelta.allLists.push(new TasksDeltaCollection([], '', list.id, list.displayName));
+                    this.logger.debug(`Added list to new cache: ${list.displayName} (${list.id})`);
                 }
             }
+        } else {
+            this.logger.info(`Loaded existing cache with ${cachedTasksDelta.allLists.length} lists`);
+            // 记录缓存中的列表名称，帮助诊断
+            cachedTasksDelta.allLists.forEach(list => {
+                this.logger.debug(`Cached list: ${list.name} (${list.listId})`);
+            });
         }
 
         // At this point we have a new empty cache or a cache with lists. For
@@ -765,6 +799,10 @@ export class MsTodoActions {
 
             this.logger.info(`Saving Delta Cache storing ${countOfAllTasks} tasks`);
             await this.setDeltaCache(cachedTasksDelta);
+            
+            // 验证缓存是否已保存
+            const cacheExistsAfter = await adapter.exists(this.deltaCachePath);
+            this.logger.debug(`Delta cache file exists after save: ${cacheExistsAfter}`);
         }
 
         return cachedTasksDelta;
