@@ -288,57 +288,106 @@ export async function getTask(
 
     userNotice.showMessage(t('CommandNotice_GettingToDo'), 3000);
 
-    const source = await plugin.app.vault.read(activeFile);
-    const { lines } = await getCurrentLinesFromEditor(editor);
+    try {
+        const source = await plugin.app.vault.read(activeFile);
+        const { lines } = await getCurrentLinesFromEditor(editor);
 
-    // Single call to update the cache using the delta link.
-    await getTaskDelta(todoApi, listId, plugin);
+        // 更新任务缓存
+        try {
+            await getTaskDelta(todoApi, listId, plugin, false);
+            logger.info('Task cache updated successfully');
+        } catch (error) {
+            logger.error('Error updating task delta:', error);
+        }
+        
+        const split = source.split('\n');
+        const modifiedPage = await Promise.all(
+            split.map(async (line: string, index: number) => {
+                // If the line is not in the selection, return the line as is.
+                if (!lines.includes(index)) {
+                    return line;
+                }
 
-    const split = source.split('\n');
-    const modifiedPage = await Promise.all(
-        split.map(async (line: string, index: number) => {
-            // If the line is not in the selection, return the line as is.
-            if (!lines.includes(index)) {
-                return line;
-            }
+                // Create the to do task from the line that is in the selection.
+                const todo = new ObsidianTodoTask(plugin.settingsManager, line);
 
-            // Create the to do task from the line that is in the selection.
-            const todo = new ObsidianTodoTask(plugin.settingsManager, line);
-
-            // If there is a block link in the line, we will try to find
-            // the task id from the block link and update the task instead.
-            // As a user can add a block link, not all tasks will be able to
-            // lookup a id from the internal cache.
-            if (todo.hasBlockLink && todo.hasId) {
-                logger.debug(`Updating Task: ${todo.title}`);
-
-                // Load from the delta cache file and pull the task from the cache.
-                const cachedTasksDelta = await getDeltaCache(plugin);
-                let returnedTask: TodoTask | undefined;
-                if (cachedTasksDelta) {
-                    for (const list of cachedTasksDelta.allLists || []) {
-                        const foundTask = list.allTasks.find(task => task.id === todo.id);
-                        if (foundTask) {
-                            returnedTask = foundTask;
-                            break;
+                // 如果有区块链接和任务ID，尝试直接从API获取最新任务状态
+                if (todo.hasBlockLink && todo.hasId) {
+                    logger.info(`Fetching latest state for task: ${todo.title} (ID: ${todo.id})`);
+                    
+                    try {
+                        // 直接从API获取最新任务状态，而不是依赖缓存
+                        const remoteTask = await todoApi.getTask(listId, todo.id);
+                        
+                        if (remoteTask) {
+                            logger.info(`Retrieved task from API: ${remoteTask.title} (Status: ${remoteTask.status})`);
+                            todo.updateFromTodoTask(remoteTask);
+                            return todo.getMarkdownTask(true);
+                        } else {
+                            logger.warn(`Task not found in remote: ${todo.id}`);
+                            // 如果API未返回任务，尝试从缓存获取
+                            return await tryGetFromCache(todo, plugin, logger);
                         }
+                    } catch (error) {
+                        logger.error(`Error getting task from API: ${error instanceof Error ? error.message : String(error)}`);
+                        // 如果API查询失败，尝试从缓存获取
+                        return await tryGetFromCache(todo, plugin, logger);
                     }
                 }
+                
+                return line;
+            }),
+        );
 
-                if (returnedTask) {
-                    todo.updateFromTodoTask(returnedTask);
-                    logger.debug(`blockLink: ${todo.blockLink}, taskId: ${todo.id}`);
-                    logger.debug(`updated: ${returnedTask.id}`);
-                }
+        await plugin.app.vault.modify(activeFile, modifiedPage.join('\n'));
+        logger.info('Task update completed successfully');
+    } catch (error) {
+        logger.error('Error in getTask:', error);
+        userNotice.showMessage('处理任务时出错: ' + (error instanceof Error ? error.message : String(error)));
+    }
+}
 
-                return todo.getMarkdownTask(true);
+// 尝试从缓存中获取任务信息的辅助函数
+async function tryGetFromCache(
+    todo: ObsidianTodoTask, 
+    plugin: MsTodoSync, 
+    logger: {
+        info: (message: string, ...args: any[]) => void;
+        warn: (message: string, ...args: any[]) => void;
+        error: (message: string, ...args: any[]) => void;
+        debug: (message: string, ...args: any[]) => void;
+    }
+): Promise<string> {
+    logger.info(`Attempting to get task from cache: ${todo.id}`);
+    const cachedTasksDelta = await getDeltaCache(plugin);
+    
+    if (!cachedTasksDelta) {
+        logger.warn('No task cache available');
+        return todo.getMarkdownTask(true); // 返回原始任务
+    }
+    
+    // 遍历所有列表查找任务
+    if (cachedTasksDelta && typeof cachedTasksDelta === 'object' && 'allLists' in cachedTasksDelta && Array.isArray(cachedTasksDelta.allLists)) {
+        for (const list of cachedTasksDelta.allLists) {
+            if (!list || !Array.isArray(list.allTasks)) continue;
+            
+            const foundTask = list.allTasks.find((task: TodoTask) => task && task.id === todo.id);
+            if (foundTask) {
+                logger.info(`Found task in cache: ${foundTask.title} (Status: ${foundTask.status})`);
+                todo.updateFromTodoTask(foundTask);
+                break;
             }
-
-            return line;
-        }),
-    );
-
-    await plugin.app.vault.modify(activeFile, modifiedPage.join('\n'));
+        }
+    } else if (cachedTasksDelta && Array.isArray(cachedTasksDelta.allTasks)) {
+        // 如果缓存结构是扁平的任务列表
+        const foundTask = cachedTasksDelta.allTasks.find((task: TodoTask) => task && task.id === todo.id);
+        if (foundTask) {
+            logger.info(`Found task in flat cache: ${foundTask.title} (Status: ${foundTask.status})`);
+            todo.updateFromTodoTask(foundTask);
+        }
+    }
+    
+    return todo.getMarkdownTask(true);
 }
 
 async function getDeltaCache(plugin: MsTodoSync) {
@@ -358,60 +407,138 @@ async function getDeltaCache(plugin: MsTodoSync) {
 export async function getTaskDelta(todoApi: TodoApi, listId: string | undefined, plugin: MsTodoSync, reset = false) {
     const logger = logging.getLogger('mstodo-sync.command.delta');
 
-    // 如果没有 listId 但有 listName，则尝试查找并设置 listId
-    if (!listId && plugin.settings.todoListSync?.listName) {
-        logger.info(`listId is empty, attempting to find it using listName: ${plugin.settings.todoListSync.listName}`);
-        listId = await todoApi.getListIdByName(plugin.settings.todoListSync.listName);
-        
-        // 如果找到了 listId，更新设置
-        if (listId) {
-            logger.info(`Found listId: ${listId} for listName: ${plugin.settings.todoListSync.listName}`);
-            plugin.settings.todoListSync.listId = listId;
-            await plugin.saveSettings();
+    try {
+        // 如果没有 listId 但有 listName，则尝试查找并设置 listId
+        if (!listId && plugin.settings?.todoListSync?.listName) {
+            logger.info(`listId is empty, attempting to find it using listName: ${plugin.settings.todoListSync.listName}`);
+            try {
+                listId = await todoApi.getListIdByName(plugin.settings.todoListSync.listName);
+                
+                // 如果找到了 listId，更新设置
+                if (listId) {
+                    logger.info(`Found listId: ${listId} for listName: ${plugin.settings.todoListSync.listName}`);
+                    plugin.settings.todoListSync.listId = listId;
+                    await plugin.saveSettings();
+                }
+            } catch (error) {
+                logger.error('Error finding list ID by name:', error);
+            }
         }
+
+        if (!listId) {
+            userNotice.showMessage(t('CommandNotice_SetListName'));
+            return;
+        }
+
+        // 使用与 msToDoActions.ts 相同的缓存路径格式
+        const pluginId = plugin.manifest.id;
+        const cachePath = `${plugin.app.vault.configDir}/plugins/${pluginId}/mstd-tasks-delta.json`;
+        const adapter: DataAdapter = plugin.app.vault.adapter;
+        
+        // 如果指定重置或缓存路径不存在，则删除缓存
+        if (reset && await adapter.exists(cachePath)) {
+            try {
+                await adapter.remove(cachePath);
+                logger.info('Cache reset successfully');
+            } catch (error) {
+                logger.error('Failed to reset cache:', error);
+            }
+        }
+
+        // 获取缓存
+        let cachedTasksDelta;
+        try {
+            if (await adapter.exists(cachePath)) {
+                const cacheContent = await adapter.read(cachePath);
+                cachedTasksDelta = JSON.parse(cacheContent);
+                logger.info('Cache loaded successfully');
+            }
+        } catch (error) {
+            logger.error('Failed to load cache:', error);
+        }
+
+        // 设置默认值
+        let deltaLink = '';
+
+        // 如果缓存存在并且有 deltaLink，则使用它
+        if (cachedTasksDelta && typeof cachedTasksDelta.deltaLink === 'string') {
+            deltaLink = cachedTasksDelta.deltaLink;
+        }
+
+        // 如果没有有效的缓存，创建一个新的 TasksDeltaCollection
+        if (!cachedTasksDelta) {
+            cachedTasksDelta = new TasksDeltaCollection([], '', '', '');
+            logger.info('Created new cache object');
+        }
+
+        // 确保 cachedTasksDelta.allTasks 存在
+        if (!Array.isArray(cachedTasksDelta.allTasks)) {
+            cachedTasksDelta.allTasks = [];
+            logger.warn('Initialized empty allTasks array in cache');
+        }
+
+        // 确保 listId 是有效的字符串
+        if (!listId || typeof listId !== 'string') {
+            logger.error(`Invalid listId: ${String(listId)}. Expected a non-empty string.`);
+            userNotice.showMessage('Invalid list ID format');
+            return cachedTasksDelta;
+        }
+
+        // 调用 API
+        logger.info(`Calling getTasksDelta with listId: ${listId}, deltaLink: ${deltaLink ? '(has value)' : '(empty)'}`);
+        
+        let returnedTask;
+        try {
+            returnedTask = await todoApi.getTasksDelta(listId, deltaLink || '');
+            logger.info('API call successful');
+        } catch (error) {
+            logger.error('API call failed:', error);
+            userNotice.showMessage('无法获取任务更新，请检查网络连接');
+            return cachedTasksDelta;
+        }
+
+        // 确保 returnedTask 有有效的结构
+        if (!returnedTask) {
+            logger.error('No response from API');
+            return cachedTasksDelta;
+        }
+
+        // 确保 returnedTask.allTasks 存在
+        if (!Array.isArray(returnedTask.allTasks)) {
+            logger.error('Invalid response: allTasks is not an array');
+            return cachedTasksDelta;
+        }
+
+        const oldTasksCount = cachedTasksDelta.allTasks.length;
+        const newTasksCount = returnedTask.allTasks.length;
+        
+        logger.info(`Merging tasks - Old tasks: ${oldTasksCount}, New tasks: ${newTasksCount}`);
+        
+        // 合并任务
+        cachedTasksDelta.allTasks = mergeCollections(
+            cachedTasksDelta.allTasks || [],
+            returnedTask.allTasks || []
+        );
+        
+        // 更新 deltaLink
+        if (returnedTask.deltaLink) {
+            cachedTasksDelta.deltaLink = returnedTask.deltaLink;
+        }
+
+        // 保存更新后的缓存
+        try {
+            await adapter.write(cachePath, JSON.stringify(cachedTasksDelta));
+            logger.info('Cache updated successfully');
+        } catch (error) {
+            logger.error('Failed to write cache:', error);
+        }
+
+        return cachedTasksDelta;
+    } catch (error) {
+        logger.error('Unexpected error in getTaskDelta:', error);
+        userNotice.showMessage('处理任务数据时发生错误');
+        return new TasksDeltaCollection([], '', '', '');
     }
-
-    if (!listId) {
-        userNotice.showMessage(t('CommandNotice_SetListName'));
-        return;
-    }
-
-    // 使用与 msToDoActions.ts 相同的缓存路径格式
-    const pluginId = plugin.manifest.id;
-    const cachePath = `${plugin.app.vault.configDir}/plugins/${pluginId}/mstd-tasks-delta.json`;
-    const adapter: DataAdapter = plugin.app.vault.adapter;
-    if (reset) {
-        await adapter.remove(cachePath);
-    }
-
-    let deltaLink = '';
-    let cachedTasksDelta = await getDeltaCache(plugin);
-
-    if (cachedTasksDelta) {
-        deltaLink = cachedTasksDelta.deltaLink;
-    } else {
-        cachedTasksDelta = new TasksDeltaCollection([], '' ,'', '');
-    }
-
-    const returnedTask = await todoApi.getTasksDelta(listId, deltaLink);
-    logger.info('deltaLink', deltaLink);
-    logger.info('ReturnedDelta', returnedTask);
-
-    if (cachedTasksDelta) {
-        logger.info('cachedTasksDelta.allTasks', cachedTasksDelta.allTasks.length);
-        logger.info('returnedTask.allTasks', returnedTask.allTasks.length);
-
-        cachedTasksDelta.allTasks = mergeCollections(cachedTasksDelta.allTasks, returnedTask.allTasks);
-        logger.info('cachedTasksDelta.allTasks', cachedTasksDelta.allTasks.length);
-
-        cachedTasksDelta.deltaLink = returnedTask.deltaLink;
-    } else {
-        logger.info('First run, loading delta cache');
-
-        cachedTasksDelta = returnedTask;
-    }
-
-    await adapter.write(cachePath, JSON.stringify(cachedTasksDelta));
 }
 
 // Function to merge collections

@@ -200,33 +200,84 @@ export class TodoApi {
      * @throws Will throw an error if the API request fails.
      */
     async getTasksDelta(listId: string, deltaLink: string): Promise<TasksDeltaCollection> {
-        const endpoint = deltaLink === '' ? `/me/todo/lists/${listId}/tasks/delta` : deltaLink;
-        const allTasks: TodoTask[] = [];
-
-        let response: PageCollection = (await this.client
-            .api(endpoint)
-            .middlewareOptions([new RetryHandlerOptions(3, 3)])
-            .get()) as PageCollection;
-
-        while (response.value.length > 0) {
-            for (const task of response.value as TodoTask[]) {
-                allTasks.push(task);
+        try {
+            // 参数验证
+            if (!listId || typeof listId !== 'string') {
+                this.logger.error(`getTasksDelta: Invalid listId parameter: ${listId}`);
+                throw new Error(`Invalid list ID: ${listId}`);
             }
 
-            if (response['@odata.nextLink']) {
-                response = await this.client.api(response['@odata.nextLink']).get();
+            // 确保 deltaLink 是有效的字符串
+            if (deltaLink && typeof deltaLink !== 'string') {
+                this.logger.warn(`getTasksDelta: Invalid deltaLink format, using empty string instead`);
+                deltaLink = '';
+            }
+
+            // 构建正确的端点
+            let endpoint: string;
+            if (deltaLink === '') {
+                endpoint = `/me/todo/lists/${listId}/tasks/delta`;
+                this.logger.debug(`Using initial delta endpoint: ${endpoint}`);
             } else {
-                break;
+                // 确保 deltaLink 是完整的 URL
+                if (deltaLink.startsWith('http')) {
+                    endpoint = deltaLink;
+                    this.logger.debug(`Using full URL deltaLink: ${endpoint}`);
+                } else {
+                    endpoint = deltaLink;
+                    this.logger.debug(`Using relative deltaLink: ${endpoint}`);
+                }
             }
+
+            const allTasks: TodoTask[] = [];
+            
+            this.logger.debug(`Making API request to: ${endpoint}`);
+            let response: PageCollection;
+            
+            try {
+                response = (await this.client
+                    .api(endpoint)
+                    .middlewareOptions([new RetryHandlerOptions(3, 3)])
+                    .get()) as PageCollection;
+            } catch (error) {
+                this.logger.error(`API request failed:`, error);
+                throw new Error(`Failed to fetch tasks delta: ${error instanceof Error ? error.message : String(error)}`);
+            }
+
+            // 处理结果
+            while (response && response.value && response.value.length > 0) {
+                for (const task of response.value as TodoTask[]) {
+                    if (task) allTasks.push(task);
+                }
+
+                // 处理分页
+                if (response['@odata.nextLink']) {
+                    this.logger.debug(`Following nextLink for more results`);
+                    try {
+                        response = await this.client.api(response['@odata.nextLink']).get();
+                    } catch (error) {
+                        this.logger.error(`Failed to fetch next page:`, error);
+                        break; // 退出循环但返回已获取的数据
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            // 更新 deltaLink
+            if (response && response['@odata.deltaLink']) {
+                deltaLink = response['@odata.deltaLink'];
+                this.logger.debug(`Received new deltaLink of length: ${deltaLink.length}`);
+            }
+
+            this.logger.info(`Retrieved ${allTasks.length} tasks from Microsoft To-Do`);
+            return new TasksDeltaCollection(allTasks, deltaLink, listId, '');
+            
+        } catch (error) {
+            this.logger.error(`getTasksDelta failed:`, error);
+            // 返回空集合而不是抛出错误
+            return new TasksDeltaCollection([], '', listId, '');
         }
-
-        if (response['@odata.deltaLink']) {
-            deltaLink = response['@odata.deltaLink'];
-        }
-
-        const tasksDeltaCollection = new TasksDeltaCollection(allTasks, deltaLink, listId, '');
-
-        return tasksDeltaCollection;
     }
 
     /**
