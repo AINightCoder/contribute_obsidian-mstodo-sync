@@ -154,6 +154,19 @@ export async function postTask(
 ) {
     const logger = logging.getLogger('mstodo-sync.command.post');
 
+    // 如果没有 listId 但有 listName，则尝试查找并设置 listId
+    if (!listId && plugin.settings.todoListSync?.listName) {
+        logger.info(`listId is empty, attempting to find it using listName: ${plugin.settings.todoListSync.listName}`);
+        listId = await todoApi.getListIdByName(plugin.settings.todoListSync.listName);
+        
+        // 如果找到了 listId，更新设置
+        if (listId) {
+            logger.info(`Found listId: ${listId} for listName: ${plugin.settings.todoListSync.listName}`);
+            plugin.settings.todoListSync.listId = listId;
+            await plugin.saveSettings();
+        }
+    }
+
     if (!listId) {
         userNotice.showMessage(t('CommandNotice_SetListName'));
         return;
@@ -250,6 +263,19 @@ export async function getTask(
 ) {
     const logger = logging.getLogger('mstodo-sync.command.get');
 
+    // 如果没有 listId 但有 listName，则尝试查找并设置 listId
+    if (!listId && plugin.settings.todoListSync?.listName) {
+        logger.info(`listId is empty, attempting to find it using listName: ${plugin.settings.todoListSync.listName}`);
+        listId = await todoApi.getListIdByName(plugin.settings.todoListSync.listName);
+        
+        // 如果找到了 listId，更新设置
+        if (listId) {
+            logger.info(`Found listId: ${listId} for listName: ${plugin.settings.todoListSync.listName}`);
+            plugin.settings.todoListSync.listId = listId;
+            await plugin.saveSettings();
+        }
+    }
+
     if (!listId) {
         userNotice.showMessage(t('CommandNotice_SetListName'));
         return;
@@ -331,6 +357,19 @@ async function getDeltaCache(plugin: MsTodoSync) {
 
 export async function getTaskDelta(todoApi: TodoApi, listId: string | undefined, plugin: MsTodoSync, reset = false) {
     const logger = logging.getLogger('mstodo-sync.command.delta');
+
+    // 如果没有 listId 但有 listName，则尝试查找并设置 listId
+    if (!listId && plugin.settings.todoListSync?.listName) {
+        logger.info(`listId is empty, attempting to find it using listName: ${plugin.settings.todoListSync.listName}`);
+        listId = await todoApi.getListIdByName(plugin.settings.todoListSync.listName);
+        
+        // 如果找到了 listId，更新设置
+        if (listId) {
+            logger.info(`Found listId: ${listId} for listName: ${plugin.settings.todoListSync.listName}`);
+            plugin.settings.todoListSync.listId = listId;
+            await plugin.saveSettings();
+        }
+    }
 
     if (!listId) {
         userNotice.showMessage(t('CommandNotice_SetListName'));
@@ -430,6 +469,19 @@ export async function postTaskAndChildren(
     push = true,
 ) {
     const logger = logging.getLogger('mstodo-sync.command.post');
+
+    // 如果没有 listId 但有 listName，则尝试查找并设置 listId
+    if (!listId && plugin.settings.todoListSync?.listName) {
+        logger.info(`listId is empty, attempting to find it using listName: ${plugin.settings.todoListSync.listName}`);
+        listId = await todoApi.getListIdByName(plugin.settings.todoListSync.listName);
+        
+        // 如果找到了 listId，更新设置
+        if (listId) {
+            logger.info(`Found listId: ${listId} for listName: ${plugin.settings.todoListSync.listName}`);
+            plugin.settings.todoListSync.listId = listId;
+            await plugin.saveSettings();
+        }
+    }
 
     if (!listId) {
         userNotice.showMessage(t('CommandNotice_SetListName'));
@@ -543,6 +595,20 @@ export async function getAllTasksInList(
 ) {
     const now = globalThis.moment();
     const settings = plugin.settingsManager.settings;
+
+    // 如果没有 listId 但有 listName，则尝试查找并设置 listId
+    if (!listId && plugin.settings.todoListSync?.listName) {
+        const logger = logging.getLogger('mstodo-sync.command.getAllTasksInList');
+        logger.info(`listId is empty, attempting to find it using listName: ${plugin.settings.todoListSync.listName}`);
+        listId = await todoApi.getListIdByName(plugin.settings.todoListSync.listName);
+        
+        // 如果找到了 listId，更新设置
+        if (listId) {
+            logger.info(`Found listId: ${listId} for listName: ${plugin.settings.todoListSync.listName}`);
+            plugin.settings.todoListSync.listId = listId;
+            await plugin.saveSettings();
+        }
+    }
 
     if (!listId) {
         userNotice.showMessage(t('CommandNotice_SetListName'));
