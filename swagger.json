@@ -1,0 +1,681 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Microsoft To Do Sync API",
+    "description": "用于调试TodoApi的接口文档",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "开发服务器"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "TodoTaskList": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "TodoTask": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "importance": {
+            "type": "string",
+            "enum": ["low", "normal", "high"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["notStarted", "inProgress", "completed"]
+          },
+          "dueDateTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "body": {
+            "type": "object",
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "contentType": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "TasksDeltaCollection": {
+        "type": "object",
+        "properties": {
+          "allTasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TodoTask"
+            }
+          },
+          "deltaLink": {
+            "type": "string"
+          },
+          "listId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "LinkedResource": {
+        "type": "object",
+        "properties": {
+          "webUrl": {
+            "type": "string"
+          },
+          "applicationName": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "get": {
+        "summary": "获取认证令牌(传统方式)",
+        "description": "通过Microsoft身份验证获取访问令牌",
+        "tags": ["认证"],
+        "responses": {
+          "200": {
+            "description": "认证成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accessToken": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "认证失败"
+          }
+        }
+      }
+    },
+    "/api/todo/auth/device-code": {
+      "post": {
+        "summary": "获取设备代码",
+        "description": "获取用于设备代码流程的验证码和验证URL",
+        "tags": ["认证"],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "成功获取设备代码",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "userCode": {
+                      "type": "string",
+                      "description": "用户需要输入的验证码"
+                    },
+                    "verificationUrl": {
+                      "type": "string",
+                      "description": "用户需要访问的验证URL"
+                    },
+                    "expiresIn": {
+                      "type": "integer",
+                      "description": "验证码过期时间(秒)"
+                    },
+                    "interval": {
+                      "type": "integer",
+                      "description": "轮询间隔(秒)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务器错误"
+          }
+        }
+      }
+    },
+    "/api/todo/auth/status": {
+      "get": {
+        "summary": "检查认证状态",
+        "description": "检查设备代码认证流程的状态",
+        "tags": ["认证"],
+        "security": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "设备验证码"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "认证成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accessToken": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "等待用户授权",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["pending"]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求错误"
+          }
+        }
+      }
+    },
+    "/api/todo/lists": {
+      "get": {
+        "summary": "获取任务列表",
+        "description": "获取所有Microsoft To Do任务列表",
+        "tags": ["任务列表"],
+        "responses": {
+          "200": {
+            "description": "成功返回任务列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TodoTaskList"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权"
+          }
+        }
+      },
+      "post": {
+        "summary": "创建任务列表",
+        "description": "创建新的Microsoft To Do任务列表",
+        "tags": ["任务列表"],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  }
+                },
+                "required": ["displayName"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "任务列表创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoTaskList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权"
+          }
+        }
+      }
+    },
+    "/api/todo/lists/byName/{listName}": {
+      "get": {
+        "summary": "通过名称获取列表ID",
+        "description": "通过任务列表名称查找对应的列表ID",
+        "tags": ["任务列表"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listName",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务列表名称"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回列表ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "列表未找到"
+          }
+        }
+      }
+    },
+    "/api/todo/lists/{listId}": {
+      "get": {
+        "summary": "获取指定任务列表",
+        "description": "通过ID获取特定的任务列表",
+        "tags": ["任务列表"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务列表ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回任务列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoTaskList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "列表未找到"
+          }
+        }
+      }
+    },
+    "/api/todo/lists/{listId}/tasks": {
+      "get": {
+        "summary": "获取列表中的任务",
+        "description": "获取特定列表中的任务",
+        "tags": ["任务"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务列表ID"
+          },
+          {
+            "in": "query",
+            "name": "searchText",
+            "schema": {
+              "type": "string"
+            },
+            "description": "搜索文本"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回任务列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TodoTask"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "列表未找到"
+          }
+        }
+      },
+      "post": {
+        "summary": "创建任务",
+        "description": "在指定列表中创建新任务",
+        "tags": ["任务"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务列表ID"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TodoTask"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "任务创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoTask"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权"
+          }
+        }
+      }
+    },
+    "/api/todo/lists/{listId}/tasks/{taskId}": {
+      "get": {
+        "summary": "获取特定任务",
+        "description": "通过ID获取特定任务",
+        "tags": ["任务"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务列表ID"
+          },
+          {
+            "in": "path",
+            "name": "taskId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回任务",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoTask"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "任务未找到"
+          }
+        }
+      },
+      "patch": {
+        "summary": "更新任务",
+        "description": "更新特定任务",
+        "tags": ["任务"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务列表ID"
+          },
+          {
+            "in": "path",
+            "name": "taskId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务ID"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TodoTask"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "任务更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoTask"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "任务未找到"
+          }
+        }
+      }
+    },
+    "/api/todo/lists/{listId}/tasks/delta": {
+      "get": {
+        "summary": "获取任务增量更新",
+        "description": "获取指定列表的任务增量更新",
+        "tags": ["任务"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务列表ID"
+          },
+          {
+            "in": "query",
+            "name": "deltaLink",
+            "schema": {
+              "type": "string"
+            },
+            "description": "增量同步链接"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回增量更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TasksDeltaCollection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权"
+          }
+        }
+      }
+    },
+    "/api/todo/lists/{listId}/tasks/{taskId}/linkedResources": {
+      "post": {
+        "summary": "创建链接资源",
+        "description": "为任务创建链接资源",
+        "tags": ["链接资源"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务列表ID"
+          },
+          {
+            "in": "path",
+            "name": "taskId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务ID"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkedResource"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "链接资源创建成功"
+          },
+          "401": {
+            "description": "未授权"
+          }
+        }
+      }
+    },
+    "/api/todo/lists/{listId}/tasks/{taskId}/linkedResources/{linkedResourceId}": {
+      "put": {
+        "summary": "更新链接资源",
+        "description": "更新任务的链接资源",
+        "tags": ["链接资源"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "listId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务列表ID"
+          },
+          {
+            "in": "path",
+            "name": "taskId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "任务ID"
+          },
+          {
+            "in": "path",
+            "name": "linkedResourceId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "链接资源ID"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkedResource"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "链接资源更新成功"
+          },
+          "401": {
+            "description": "未授权"
+          }
+        }
+      }
+    }
+  }
+} 

@@ -19,3 +19,4 @@ data.json
 .DS_Store
 # Exclude cache
 cache
+.cache/Microsoft_cache.json

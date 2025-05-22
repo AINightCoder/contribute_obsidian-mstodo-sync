@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Microsoft To Do 认证回调</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            max-width: 500px;
+            text-align: center;
+        }
+        h1 {
+            color: #0078d7;
+        }
+        .success-icon {
+            color: #107c10;
+            font-size: 48px;
+            margin: 20px 0;
+        }
+        .error-icon {
+            color: #d83b01;
+            font-size: 48px;
+            margin: 20px 0;
+        }
+        .info {
+            margin: 10px 0;
+            line-height: 1.5;
+        }
+        .bold {
+            font-weight: bold;
+        }
+        .button {
+            background-color: #0078d7;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 20px;
+            text-decoration: none;
+        }
+        .button:hover {
+            background-color: #106ebe;
+        }
+        .error-details {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f8f8f8;
+            border-radius: 4px;
+            text-align: left;
+            font-family: monospace;
+            font-size: 12px;
+            color: #d83b01;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+        .loading {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(0,120,215,0.3);
+            border-radius: 50%;
+            border-top-color: #0078d7;
+            animation: spin 1s ease-in-out infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="container">
+        <div id="loadingView">
+            <h1>处理认证响应...</h1>
+            <div class="loading"></div>
+            <p class="info">正在完成Microsoft账号授权，请稍候...</p>
+        </div>
+        
+        <div id="successView" style="display: none;">
+            <h1>Microsoft To Do 认证完成</h1>
+            <div class="success-icon">✓</div>
+            <p class="info">授权已成功完成，您可以关闭此窗口并返回到 Swagger UI。</p>
+            <p class="info bold">Microsoft To Do API 现已可用。</p>
+            <a href="/api-docs" class="button">返回 API 文档</a>
+        </div>
+        
+        <div id="errorView" style="display: none;">
+            <h1>认证失败</h1>
+            <div class="error-icon">✗</div>
+            <p class="info">无法完成Microsoft账号授权。</p>
+            <p class="info" id="errorMessage">发生了未知错误。</p>
+            <div class="error-details" id="errorDetails"></div>
+            <a href="/auth" class="button">重试认证</a>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const loadingView = document.getElementById('loadingView');
+            const successView = document.getElementById('successView');
+            const errorView = document.getElementById('errorView');
+            const errorMessage = document.getElementById('errorMessage');
+            const errorDetails = document.getElementById('errorDetails');
+            
+            // 检查是否是认证回调
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const state = urlParams.get('state');
+            const error = urlParams.get('error');
+            const errorDescription = urlParams.get('error_description');
+            const success = urlParams.get('success');
+            
+            function showSuccess() {
+                loadingView.style.display = 'none';
+                successView.style.display = 'block';
+                errorView.style.display = 'none';
+                
+                // 通知父窗口认证成功（如果是从另一个窗口打开的）
+                if (window.opener) {
+                    try {
+                        window.opener.postMessage({
+                            type: 'AUTH_COMPLETE',
+                            success: true
+                        }, '*');
+                    } catch (e) {
+                        console.error('无法向父窗口发送消息', e);
+                    }
+                    
+                    // 2秒后关闭窗口（如果是弹出窗口）
+                    setTimeout(() => {
+                        window.close();
+                    }, 2000);
+                }
+            }
+            
+            function showError(message, details) {
+                loadingView.style.display = 'none';
+                successView.style.display = 'none';
+                errorView.style.display = 'block';
+                
+                if (message) {
+                    errorMessage.textContent = message;
+                }
+                
+                if (details) {
+                    errorDetails.textContent = details;
+                    errorDetails.style.display = 'block';
+                } else {
+                    errorDetails.style.display = 'none';
+                }
+                
+                // 通知父窗口认证失败（如果是从另一个窗口打开的）
+                if (window.opener) {
+                    try {
+                        window.opener.postMessage({
+                            type: 'AUTH_COMPLETE',
+                            success: false,
+                            error: message
+                        }, '*');
+                    } catch (e) {
+                        console.error('无法向父窗口发送消息', e);
+                    }
+                }
+            }
+            
+            // 直接显示成功状态
+            if (success === 'true') {
+                showSuccess();
+                return;
+            }
+            
+            // 处理错误参数
+            if (error) {
+                showError(
+                    `认证错误: ${error}`, 
+                    errorDescription ? `详细信息: ${errorDescription}` : ''
+                );
+                return;
+            }
+            
+            // 处理OAuth回调代码
+            if (code && state) {
+                // 显示加载状态
+                loadingView.style.display = 'block';
+                successView.style.display = 'none';
+                errorView.style.display = 'none';
+                
+                // 直接通过前端通信，不需要再次调用后端
+                // 前端直接显示成功，令牌交换已在重定向前由后端完成
+                showSuccess();
+            } else if (window.location.hash) {
+                // 处理隐式流程中的令牌（位于URL片段中）
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                const accessToken = hashParams.get('access_token');
+                const tokenError = hashParams.get('error');
+                
+                if (accessToken) {
+                    // 存储令牌
+                    localStorage.setItem('msft_access_token', accessToken);
+                    showSuccess();
+                } else if (tokenError) {
+                    showError(
+                        `令牌错误: ${tokenError}`,
+                        hashParams.get('error_description')
+                    );
+                } else {
+                    showError('无法获取认证响应');
+                }
+            } else {
+                // 未识别的页面访问
+                errorMessage.textContent = '未收到认证响应';
+                errorDetails.style.display = 'none';
+                
+                loadingView.style.display = 'none';
+                successView.style.display = 'none';
+                errorView.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html> 
