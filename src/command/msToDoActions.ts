@@ -226,6 +226,15 @@ export class MsTodoActions {
 
         this.logger.info(`Updated Tasks: ${updatedTasks}`);
         this.userNotice.showMessage(t('CommandNotice_SyncComplete'), 3000);
+        
+        // 如果有设置任务摘要文件路径，则在同步完成后自动更新
+        if (this.settings.taskSummaryFilePath) {
+            try {
+                await this.generateTaskSummary();
+            } catch (error) {
+                this.logger.error('Error updating task summary after sync:', error);
+            }
+        }
     }
 
     /**
@@ -894,5 +903,154 @@ export class MsTodoActions {
         }
 
         return '';
+    }
+
+    /**
+     * 从缓存中读取所有任务数据，并以Markdown格式写入到指定文件
+     * 
+     * @returns {Promise<void>} Promise对象，表示操作完成
+     */
+    public async generateTaskSummary(): Promise<void> {
+        try {
+            // 获取所有任务数据（从缓存）
+            const cachedTasksDelta = await this.getTaskDelta(false, false);
+            if (!cachedTasksDelta) {
+                this.logger.warn('No tasks data found in cache');
+                this.userNotice.showMessage('未找到任务数据，请先同步Microsoft To-Do');
+                return;
+            }
+
+            // 生成Markdown内容
+            let markdownContent = '# Microsoft To-Do 任务摘要\n\n';
+            markdownContent += `> 最后更新时间：${new Date().toLocaleString()}\n\n`;
+
+            // 按列表组织任务
+            for (const list of (cachedTasksDelta as any).allLists) {
+                if (!list.name || !list.allTasks || list.allTasks.length === 0) {
+                    continue;
+                }
+                
+                markdownContent += `## ${list.name}\n\n`;
+                
+                // 分类存储父任务和子任务
+                const parentTasks: Record<string, any> = {};
+                const childrenTasks: Record<string, any[]> = {};
+                
+                // 找出所有父任务和子任务
+                for (const task of list.allTasks) {
+                    // 跳过被删除的任务或无效任务
+                    if (!task.id || (task as any)['@removed']) {
+                        continue;
+                    }
+                    
+                    // Microsoft Graph API 的 TodoTask 实际数据中可能包含 parentId
+                    const parentId = (task as any).parentId;
+                    
+                    if (parentId) {
+                        // 这是一个子任务
+                        if (!childrenTasks[parentId]) {
+                            childrenTasks[parentId] = [];
+                        }
+                        childrenTasks[parentId].push(task);
+                    } else {
+                        // 这是一个父任务
+                        parentTasks[task.id] = task;
+                    }
+                }
+                
+                // 按父任务排序，然后处理每个父任务及其子任务
+                const sortedParentTasks = Object.values(parentTasks).sort((a, b) => {
+                    // 简化完成状态检查逻辑
+                    const aCompleted = this.isTaskCompleted(a);
+                    const bCompleted = this.isTaskCompleted(b);
+                    
+                    if (aCompleted && !bCompleted) return 1;
+                    if (!aCompleted && bCompleted) return -1;
+                    return (a.title || '').localeCompare(b.title || '');
+                });
+                
+                for (const parentTask of sortedParentTasks) {
+                    // 添加父任务
+                    const isCompleted = this.isTaskCompleted(parentTask) ? 'x' : ' ';
+                    markdownContent += `- [${isCompleted}] ${parentTask.title || '无标题任务'}\n`;
+                    
+                    // 添加任务正文（如果有）
+                    if (parentTask.body?.content && parentTask.body.content.trim() !== '') {
+                        const bodyContent = parentTask.body.content.replace(/\n/g, '\n  ');
+                        markdownContent += `  > ${bodyContent}\n`;
+                    }
+                    
+                    // 添加子任务（如果有）
+                    const children = childrenTasks[parentTask.id || ''] || [];
+                    if (children.length > 0) {
+                        // 对子任务进行排序
+                        children.sort((a, b) => {
+                            const aCompleted = this.isTaskCompleted(a);
+                            const bCompleted = this.isTaskCompleted(b);
+                            
+                            if (aCompleted && !bCompleted) return 1;
+                            if (!aCompleted && bCompleted) return -1;
+                            return (a.title || '').localeCompare(b.title || '');
+                        });
+                        
+                        for (const childTask of children) {
+                            const isChildCompleted = this.isTaskCompleted(childTask) ? 'x' : ' ';
+                            markdownContent += `  - [${isChildCompleted}] ${childTask.title || '无标题子任务'}\n`;
+                            
+                            // 添加子任务正文（如果有）
+                            if (childTask.body?.content && childTask.body.content.trim() !== '') {
+                                const bodyContent = childTask.body.content.replace(/\n/g, '\n    ');
+                                markdownContent += `    > ${bodyContent}\n`;
+                            }
+                        }
+                    }
+                    
+                    // 任务之间添加一个空行
+                    markdownContent += '\n';
+                }
+            }
+            
+            // 获取任务摘要文件路径
+            const filePath = this.settings.taskSummaryFilePath || 'task.md';
+            
+            try {
+                // 检查文件是否存在，不存在则创建
+                const adapter = this.plugin.app.vault.adapter;
+                let fileExists = await adapter.exists(filePath);
+                
+                // 写入文件内容
+                await adapter.write(filePath, markdownContent);
+                
+                // 显示成功消息
+                if (fileExists) {
+                    this.userNotice.showMessage(`已更新任务摘要到 ${filePath}`);
+                } else {
+                    this.userNotice.showMessage(`已创建任务摘要文件 ${filePath}`);
+                }
+                
+                this.logger.info(`Task summary exported to ${filePath}`);
+            } catch (error) {
+                this.logger.error('Error writing task summary file:', error);
+                this.userNotice.showMessage(`写入任务摘要文件失败: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        } catch (error) {
+            this.logger.error('Error generating task summary:', error);
+            this.userNotice.showMessage(`生成任务摘要失败: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+    
+    /**
+     * 检查任务是否已完成
+     * 
+     * @param task 任务对象
+     * @returns 如果任务已完成则返回true，否则返回false
+     */
+    private isTaskCompleted(task: any): boolean {
+        // Microsoft Graph API 中已完成的任务有 completedDateTime 属性或 status 为 "completed"
+        return (
+            task.status === "completed" || 
+            (task.status?.completedDateTime !== undefined && task.status?.completedDateTime !== null) ||
+            ((task as any).completedDateTime !== undefined && (task as any).completedDateTime !== null)
+        );
     }
 }

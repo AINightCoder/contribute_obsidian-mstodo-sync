@@ -12,6 +12,9 @@ export interface IMsTodoSyncSettings {
 
     todo_CreateToDoListIfMissing: boolean;
 
+    // 任务摘要输出文件路径
+    taskSummaryFilePath: string;
+
     diary: {
         folder: string;
         format: string;
@@ -66,6 +69,8 @@ export const DEFAULT_SETTINGS: IMsTodoSyncSettings = {
         listId: undefined,
     },
     todo_CreateToDoListIfMissing: true,
+    // 默认任务摘要文件路径为仓库根目录的 task.md
+    taskSummaryFilePath: 'task.md',
     diary: {
         folder: '',
         format: '',
@@ -183,6 +188,20 @@ export class MsTodoSyncSettingTab extends PluginSettingTab {
                     this.settings.todo_OpenUsingApplicationProtocol = value;
                     await this.plugin.saveSettings();
                 }),
+            );
+
+        // 添加任务摘要文件路径设置
+        new Setting(containerEl)
+            .setName('任务摘要文件路径')
+            .setDesc('设置导出Microsoft To-Do任务的Markdown文件路径（相对于仓库根目录）')
+            .addText((text) =>
+                text
+                    .setPlaceholder('task.md')
+                    .setValue(this.settings.taskSummaryFilePath)
+                    .onChange(async (value) => {
+                        this.settings.taskSummaryFilePath = value;
+                        await this.plugin.saveSettings();
+                    }),
             );
 
         // Formatting Options that user can set

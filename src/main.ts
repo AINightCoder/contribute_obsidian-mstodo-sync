@@ -82,6 +82,7 @@ export default class MsTodoSync extends Plugin {
      * - `create-task-replace`: Posts the selected text as tasks to Microsoft To-Do and replaces the selected text.
      * - `open-task-link`: Opens the link to the task in Microsoft To-Do.
      * - `add-microsoft-todo`: Inserts a summary of today's tasks from Microsoft To-Do.
+     * - `generate-task-summary`: Generates or updates a task summary file.
      *
      * Each command is associated with an `editorCallback` that defines the action to be performed when the command is executed.
      *
@@ -120,6 +121,15 @@ export default class MsTodoSync extends Plugin {
             name: t('CommandName_InsertSummary'),
             editorCallback: async (editor: Editor, _view: MarkdownView | MarkdownFileInfo) => {
                 await createTodayTasks(this.todoApi, this.settings, editor);
+            },
+        });
+        
+        // 添加命令：生成/更新任务摘要文件
+        this.addCommand({
+            id: 'generate-task-summary',
+            name: '生成/更新任务摘要文件',
+            callback: async () => {
+                await this.msToDoActions.generateTaskSummary();
             },
         });
 
@@ -210,6 +220,14 @@ export default class MsTodoSync extends Plugin {
                     microsoftToDoSubmenu.addItem((item) => {
                         item.setTitle(t('EditorMenu_OpenToDo')).onClick(async () => {
                             this.msToDoActions.viewTaskInTodo(editor);
+                        });
+                    });
+                    
+                    // 添加任务摘要生成/更新选项
+                    microsoftToDoSubmenu.addSeparator();
+                    microsoftToDoSubmenu.addItem((item) => {
+                        item.setTitle('生成/更新任务摘要文件').onClick(async () => {
+                            await this.msToDoActions.generateTaskSummary();
                         });
                     });
                 });
