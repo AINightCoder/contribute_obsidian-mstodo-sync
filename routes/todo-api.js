@@ -367,8 +367,62 @@ class TodoApi {
         apiCall = apiCall.filter(searchText);
       }
       
-      const response = await apiCall.get();
-      return response.value;
+      // 添加$expand=checklistItems参数以确保API返回子任务数据
+      // 避免重复添加参数，创建不带searchText的API调用
+      const expandParam = "?$expand=checklistItems";
+      const queryEndpoint = endpoint + expandParam;
+      apiCall = client.api(queryEndpoint);
+      if (searchText) {
+        apiCall = apiCall.filter(searchText);
+      }
+      
+      const allTasks = [];
+      let response = await apiCall.get();
+      
+      // 处理所有分页结果
+      while (response && response.value && response.value.length > 0) {
+        allTasks.push(...response.value);
+        
+        // 处理分页
+        if (response['@odata.nextLink']) {
+          try {
+            this.logger.debug(`获取下一页任务，已收集 ${allTasks.length} 个任务...`);
+            
+            // 判断nextLink是否是完整URL
+            const nextLink = response['@odata.nextLink'];
+            this.logger.debug(`下一页链接: ${nextLink}`);
+            
+            if (nextLink.startsWith('https://')) {
+              // 如果是完整URL，使用特殊方法直接请求
+              const nextResponse = await fetch(nextLink, {
+                headers: {
+                  'Authorization': `Bearer ${await this.clientProvider.getAccessToken()}`,
+                  'Accept': 'application/json'
+                }
+              });
+              
+              if (!nextResponse.ok) {
+                const errorText = await nextResponse.text();
+                this.logger.error(`下一页请求失败 (${nextResponse.status}): ${errorText}`);
+                break;
+              }
+              
+              response = await nextResponse.json();
+            } else {
+              // 如果只是相对路径，使用Graph客户端
+              response = await client.api(nextLink).get();
+            }
+          } catch (paginationError) {
+            this.logger.error(`获取下一页失败:`, paginationError);
+            break; // 停止分页，返回已获取的任务
+          }
+        } else {
+          break;
+        }
+      }
+      
+      this.logger.info(`从Microsoft To Do获取了${allTasks.length}个任务`);
+      return allTasks;
     } catch (error) {
       this.logger.error('获取任务失败:', error);
       throw new Error('无法获取Microsoft To Do任务');

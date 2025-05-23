@@ -110,6 +110,8 @@ export const todoApi = {
   tasks: {
     // 获取列表中的所有任务
     getTasks: async (listId) => {
+      // 已经添加了$expand=checklistItems参数以确保API返回子任务数据
+      // 服务器端已实现分页处理，会返回所有任务
       const response = await apiClient.get(`/lists/${listId}/tasks?$expand=checklistItems`)
       return response.data
     },
