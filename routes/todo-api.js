@@ -106,17 +106,416 @@ class MicrosoftClientProvider {
 class TodoApi {
   constructor(clientProvider) {
     this.clientProvider = clientProvider;
+    this.logger = console;
+    this.retryOptions = { maxRetries: 3, delayMs: 3000 };
   }
   
+  async getClient() {
+    // 懒加载客户端，确保在需要时才获取
+    if (!this._client) {
+      try {
+        // 获取Graph客户端
+        const accessToken = await this.clientProvider.getAccessToken();
+        this._client = this.createGraphClient(accessToken);
+        this.logger.debug('Graph client created successfully');
+      } catch (error) {
+        this.logger.error('Failed to initialize Graph client:', error);
+        throw new Error('无法初始化Microsoft客户端');
+      }
+    }
+    return this._client;
+  }
+  
+  // 创建Microsoft Graph客户端
+  createGraphClient(accessToken) {
+    // 由于我们使用的是Node.js环境，需要手动实现Graph客户端
+    return {
+      api: (endpoint) => {
+        const apiBuilder = {
+          endpoint,
+          filterParam: '',
+          middlewareOpts: [],
+          
+          // Builder模式方法
+          filter(filterExpr) {
+            this.filterParam = `$filter=${encodeURIComponent(filterExpr)}`;
+            return this;
+          },
+          
+          middlewareOptions(options) {
+            this.middlewareOpts = options;
+            return this;
+          },
+          
+          // 执行HTTP请求
+          async get() {
+            try {
+              const url = `https://graph.microsoft.com/v1.0${this.endpoint}${this.filterParam ? '?' + this.filterParam : ''}`;
+              console.log(`Making Graph API request to: ${url}`);
+              
+              const response = await fetch(url, {
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'Accept': 'application/json'
+                }
+              });
+              
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Graph API error (${response.status}): ${errorText}`);
+                throw new Error(`Graph API request failed: ${response.status}`);
+              }
+              
+              return await response.json();
+            } catch (error) {
+              console.error('Graph API request error:', error);
+              throw error;
+            }
+          },
+          
+          // POST方法实现
+          async post(data) {
+            try {
+              const url = `https://graph.microsoft.com/v1.0${this.endpoint}`;
+              console.log(`Making Graph API POST to: ${url}`);
+              
+              const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json'
+                },
+                body: JSON.stringify(data)
+              });
+              
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Graph API error (${response.status}): ${errorText}`);
+                throw new Error(`Graph API request failed: ${response.status}`);
+              }
+              
+              return await response.json();
+            } catch (error) {
+              console.error('Graph API POST error:', error);
+              throw error;
+            }
+          },
+          
+          // PATCH方法实现
+          async patch(data) {
+            try {
+              const url = `https://graph.microsoft.com/v1.0${this.endpoint}`;
+              console.log(`Making Graph API PATCH to: ${url}`);
+              
+              const response = await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json'
+                },
+                body: JSON.stringify(data)
+              });
+              
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Graph API error (${response.status}): ${errorText}`);
+                throw new Error(`Graph API request failed: ${response.status}`);
+              }
+              
+              return await response.json();
+            } catch (error) {
+              console.error('Graph API PATCH error:', error);
+              throw error;
+            }
+          },
+          
+          // Update方法（PATCH的别名）
+          async update(data) {
+            return this.patch(data);
+          }
+        };
+        
+        return apiBuilder;
+      }
+    };
+  }
+  
+  /**
+   * 获取所有任务列表
+   */
   async getLists() {
-    return [
-      { id: "demo-list-1", displayName: "演示列表1" },
-      { id: "demo-list-2", displayName: "演示列表2" }
-    ];
+    try {
+      const client = await this.getClient();
+      const endpoint = '/me/todo/lists';
+      const response = await client.api(endpoint).get();
+      
+      if (!response || !response.value) {
+        return [];
+      }
+      
+      return response.value;
+    } catch (error) {
+      this.logger.error('获取任务列表失败:', error);
+      throw new Error('无法获取Microsoft To Do任务列表');
+    }
   }
   
+  /**
+   * 根据名称获取列表ID
+   */
+  async getListIdByName(listName) {
+    if (!listName) {
+      return;
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = '/me/todo/lists';
+      const response = await client.api(endpoint).filter(`contains(displayName,'${listName}')`).get();
+      
+      if (!response.value || response.value.length === 0) {
+        return;
+      }
+      
+      return response.value[0].id;
+    } catch (error) {
+      this.logger.error('根据名称获取列表ID失败:', error);
+      throw new Error(`无法找到名为"${listName}"的列表`);
+    }
+  }
+  
+  /**
+   * 获取特定任务列表
+   */
+  async getList(listId) {
+    if (!listId) {
+      return;
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}`;
+      return await client.api(endpoint).get();
+    } catch (error) {
+      this.logger.error('获取任务列表失败:', error);
+      throw new Error('无法获取指定的Microsoft To Do任务列表');
+    }
+  }
+  
+  /**
+   * 创建任务列表
+   */
   async createTaskList(displayName) {
-    return { id: "new-list-" + Date.now(), displayName };
+    if (!displayName) {
+      return;
+    }
+    
+    try {
+      const client = await this.getClient();
+      return await client.api('/me/todo/lists').post({
+        displayName
+      });
+    } catch (error) {
+      this.logger.error('创建任务列表失败:', error);
+      throw new Error('无法创建Microsoft To Do任务列表');
+    }
+  }
+  
+  /**
+   * 获取列表中的任务
+   */
+  async getListTasks(listId, searchText) {
+    if (!listId) {
+      return;
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks`;
+      
+      let apiCall = client.api(endpoint);
+      if (searchText) {
+        apiCall = apiCall.filter(searchText);
+      }
+      
+      const response = await apiCall.get();
+      return response.value;
+    } catch (error) {
+      this.logger.error('获取任务失败:', error);
+      throw new Error('无法获取Microsoft To Do任务');
+    }
+  }
+  
+  /**
+   * 获取特定任务
+   */
+  async getTask(listId, taskId) {
+    if (!listId || !taskId) {
+      return;
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}`;
+      return await client.api(endpoint).get();
+    } catch (error) {
+      this.logger.error('获取任务失败:', error);
+      throw new Error('无法获取指定的Microsoft To Do任务');
+    }
+  }
+  
+  /**
+   * 获取任务增量更新
+   */
+  async getTasksDelta(listId, deltaLink) {
+    if (!listId) {
+      this.logger.error('获取任务增量更新失败: 缺少listId');
+      throw new Error('获取任务增量更新需要有效的列表ID');
+    }
+    
+    try {
+      const client = await this.getClient();
+      
+      let endpoint;
+      if (!deltaLink || deltaLink === '') {
+        endpoint = `/me/todo/lists/${listId}/tasks/delta`;
+        this.logger.debug(`使用初始delta端点: ${endpoint}`);
+      } else {
+        endpoint = deltaLink;
+        this.logger.debug(`使用deltaLink: ${endpoint}`);
+      }
+      
+      const allTasks = [];
+      
+      let response = await client.api(endpoint).get();
+      
+      // 处理所有分页结果
+      while (response && response.value && response.value.length > 0) {
+        allTasks.push(...response.value);
+        
+        // 处理分页
+        if (response['@odata.nextLink']) {
+          this.logger.debug(`获取下一页结果...`);
+          response = await client.api(response['@odata.nextLink']).get();
+        } else {
+          break;
+        }
+      }
+      
+      // 获取新的deltaLink
+      const newDeltaLink = response['@odata.deltaLink'] || '';
+      
+      this.logger.info(`从Microsoft To Do获取了${allTasks.length}个任务`);
+      return {
+        allTasks,
+        deltaLink: newDeltaLink,
+        listId,
+        name: '' 
+      };
+    } catch (error) {
+      this.logger.error('获取任务增量更新失败:', error);
+      // 返回空集合
+      return {
+        allTasks: [],
+        deltaLink: '',
+        listId,
+        name: ''
+      };
+    }
+  }
+  
+  /**
+   * 根据待办事项创建任务
+   */
+  async createTaskFromToDo(listId, toDo) {
+    if (!listId) {
+      throw new Error('创建任务需要有效的列表ID');
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks`;
+      return await client.api(endpoint).post(toDo);
+    } catch (error) {
+      this.logger.error('创建任务失败:', error);
+      throw new Error('无法创建Microsoft To Do任务');
+    }
+  }
+  
+  /**
+   * 更新任务
+   */
+  async updateTaskFromToDo(listId, taskId, toDo) {
+    if (!listId || !taskId) {
+      throw new Error('更新任务需要有效的列表ID和任务ID');
+    }
+    
+    try {
+      // 删除linkedResources属性，因为它不能通过PATCH更新
+      const todoWithoutLinkedResources = { ...toDo };
+      delete todoWithoutLinkedResources.linkedResources;
+      
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}`;
+      return await client.api(endpoint).patch(todoWithoutLinkedResources);
+    } catch (error) {
+      this.logger.error('更新任务失败:', error);
+      throw new Error('无法更新Microsoft To Do任务');
+    }
+  }
+  
+  /**
+   * 创建链接资源
+   */
+  async createLinkedResource(listId, taskId, blockId, webUrl) {
+    if (!listId || !taskId) {
+      throw new Error('创建链接资源需要有效的列表ID和任务ID');
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}/linkedResources`;
+      
+      const linkedResource = {
+        webUrl,
+        applicationName: 'Obsidian Microsoft To Do Sync',
+        externalId: blockId,
+        displayName: `Tracking Block Link: ${blockId}`
+      };
+      
+      return await client.api(endpoint).post(linkedResource);
+    } catch (error) {
+      this.logger.error('创建链接资源失败:', error);
+      throw new Error('无法创建Microsoft To Do链接资源');
+    }
+  }
+  
+  /**
+   * 更新链接资源
+   */
+  async updateLinkedResource(listId, taskId, linkedResourceId, blockId, webUrl) {
+    if (!listId || !taskId || !linkedResourceId) {
+      throw new Error('更新链接资源需要有效的列表ID、任务ID和资源ID');
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}/linkedResources/${linkedResourceId}`;
+      
+      const linkedResource = {
+        webUrl,
+        applicationName: 'Obsidian Microsoft To Do Sync',
+        externalId: blockId,
+        displayName: `Tracking Block Link: ${blockId}`
+      };
+      
+      return await client.api(endpoint).update(linkedResource);
+    } catch (error) {
+      this.logger.error('更新链接资源失败:', error);
+      throw new Error('无法更新Microsoft To Do链接资源');
+    }
   }
 }
 
@@ -449,7 +848,14 @@ router.get('/lists', async (req, res) => {
 // 通过名称获取列表ID
 router.get('/lists/byName/:listName', async (req, res) => {
   try {
-    res.json({ id: "demo-list-1" });
+    const listName = req.params.listName;
+    const listId = await todoApi.getListIdByName(listName);
+    
+    if (!listId) {
+      return res.status(404).json({ message: `未找到名为"${listName}"的列表` });
+    }
+    
+    res.json({ id: listId });
   } catch (error) {
     console.error('通过名称获取列表ID失败:', error);
     res.status(500).json({ message: '通过名称获取列表ID失败', error: error.message });
@@ -459,7 +865,13 @@ router.get('/lists/byName/:listName', async (req, res) => {
 // 获取特定任务列表
 router.get('/lists/:listId', async (req, res) => {
   try {
-    res.json({ id: req.params.listId, displayName: "演示列表 " + req.params.listId });
+    const list = await todoApi.getList(req.params.listId);
+    
+    if (!list) {
+      return res.status(404).json({ message: '未找到任务列表' });
+    }
+    
+    res.json(list);
   } catch (error) {
     console.error('获取任务列表失败:', error);
     res.status(500).json({ message: '获取任务列表失败', error: error.message });
@@ -470,6 +882,11 @@ router.get('/lists/:listId', async (req, res) => {
 router.post('/lists', async (req, res) => {
   try {
     const { displayName } = req.body;
+    
+    if (!displayName) {
+      return res.status(400).json({ message: '创建任务列表需要displayName参数' });
+    }
+    
     const newList = await todoApi.createTaskList(displayName);
     res.status(201).json(newList);
   } catch (error) {
@@ -481,10 +898,16 @@ router.post('/lists', async (req, res) => {
 // 获取列表中的任务
 router.get('/lists/:listId/tasks', async (req, res) => {
   try {
-    res.json([
-      { id: "task-1", title: "演示任务1", status: "notStarted" },
-      { id: "task-2", title: "演示任务2", status: "completed" }
-    ]);
+    const { listId } = req.params;
+    const { filter } = req.query;
+    
+    const tasks = await todoApi.getListTasks(listId, filter);
+    
+    if (!tasks) {
+      return res.json([]);
+    }
+    
+    res.json(tasks);
   } catch (error) {
     console.error('获取任务失败:', error);
     res.status(500).json({ message: '获取任务失败', error: error.message });
@@ -508,7 +931,15 @@ router.get('/lists/:listId/tasks/:taskId', async (req, res) => {
 // 创建任务
 router.post('/lists/:listId/tasks', async (req, res) => {
   try {
-    const newTask = await todoApi.createTaskFromToDo(req.params.listId, req.body);
+    const { listId } = req.params;
+    const taskData = req.body;
+    
+    // 确保必要的任务属性
+    if (!taskData.title) {
+      return res.status(400).json({ message: '任务必须包含title字段' });
+    }
+    
+    const newTask = await todoApi.createTaskFromToDo(listId, taskData);
     res.status(201).json(newTask);
   } catch (error) {
     console.error('创建任务失败:', error);
@@ -519,7 +950,10 @@ router.post('/lists/:listId/tasks', async (req, res) => {
 // 更新任务
 router.patch('/lists/:listId/tasks/:taskId', async (req, res) => {
   try {
-    const updatedTask = await todoApi.updateTaskFromToDo(req.params.listId, req.params.taskId, req.body);
+    const { listId, taskId } = req.params;
+    const taskData = req.body;
+    
+    const updatedTask = await todoApi.updateTaskFromToDo(listId, taskId, taskData);
     res.json(updatedTask);
   } catch (error) {
     console.error('更新任务失败:', error);
@@ -530,7 +964,10 @@ router.patch('/lists/:listId/tasks/:taskId', async (req, res) => {
 // 获取任务增量更新
 router.get('/lists/:listId/tasks/delta', async (req, res) => {
   try {
-    const deltaCollection = await todoApi.getTasksDelta(req.params.listId, req.query.deltaLink || '');
+    const { listId } = req.params;
+    const { deltaLink } = req.query;
+    
+    const deltaCollection = await todoApi.getTasksDelta(listId, deltaLink || '');
     res.json(deltaCollection);
   } catch (error) {
     console.error('获取任务增量更新失败:', error);
@@ -541,9 +978,15 @@ router.get('/lists/:listId/tasks/delta', async (req, res) => {
 // 创建链接资源
 router.post('/lists/:listId/tasks/:taskId/linkedResources', async (req, res) => {
   try {
+    const { listId, taskId } = req.params;
     const { webUrl, externalId } = req.body;
-    await todoApi.createLinkedResource(req.params.listId, req.params.taskId, externalId, webUrl);
-    res.status(201).json({ message: '链接资源创建成功' });
+    
+    if (!webUrl || !externalId) {
+      return res.status(400).json({ message: '创建链接资源需要webUrl和externalId字段' });
+    }
+    
+    const linkedResource = await todoApi.createLinkedResource(listId, taskId, externalId, webUrl);
+    res.status(201).json(linkedResource);
   } catch (error) {
     console.error('创建链接资源失败:', error);
     res.status(500).json({ message: '创建链接资源失败', error: error.message });
@@ -553,15 +996,21 @@ router.post('/lists/:listId/tasks/:taskId/linkedResources', async (req, res) => 
 // 更新链接资源
 router.put('/lists/:listId/tasks/:taskId/linkedResources/:linkedResourceId', async (req, res) => {
   try {
+    const { listId, taskId, linkedResourceId } = req.params;
     const { webUrl, externalId } = req.body;
-    await todoApi.updateLinkedResource(
-      req.params.listId,
-      req.params.taskId,
-      req.params.linkedResourceId,
+    
+    if (!webUrl || !externalId) {
+      return res.status(400).json({ message: '更新链接资源需要webUrl和externalId字段' });
+    }
+    
+    const updatedResource = await todoApi.updateLinkedResource(
+      listId,
+      taskId,
+      linkedResourceId,
       externalId,
       webUrl
     );
-    res.json({ message: '链接资源更新成功' });
+    res.json(updatedResource);
   } catch (error) {
     console.error('更新链接资源失败:', error);
     res.status(500).json({ message: '更新链接资源失败', error: error.message });
