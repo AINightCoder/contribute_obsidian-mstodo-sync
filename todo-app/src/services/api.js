@@ -151,6 +151,41 @@ export const todoApi = {
       const endpoint = `/lists/${listId}/tasks/delta${deltaLink ? `?deltaLink=${encodeURIComponent(deltaLink)}` : ''}`
       const response = await apiClient.get(endpoint)
       return response.data
+    },
+    
+    // 添加子任务
+    addChecklistItem: async (listId, taskId, title) => {
+      const response = await apiClient.post(`/lists/${listId}/tasks/${taskId}/checklistItems`, { title })
+      return response.data
+    },
+    
+    // 更新子任务
+    updateChecklistItem: async (listId, taskId, checklistItemId, data) => {
+      const response = await apiClient.patch(
+        `/lists/${listId}/tasks/${taskId}/checklistItems/${checklistItemId}`, 
+        data
+      )
+      return response.data
+    },
+    
+    // 完成子任务
+    completeChecklistItem: async (listId, taskId, checklistItemId) => {
+      return await todoApi.tasks.updateChecklistItem(listId, taskId, checklistItemId, {
+        isCompleted: true
+      })
+    },
+    
+    // 取消完成子任务
+    uncompleteChecklistItem: async (listId, taskId, checklistItemId) => {
+      return await todoApi.tasks.updateChecklistItem(listId, taskId, checklistItemId, {
+        isCompleted: false
+      })
+    },
+    
+    // 删除子任务
+    deleteChecklistItem: async (listId, taskId, checklistItemId) => {
+      const response = await apiClient.delete(`/lists/${listId}/tasks/${taskId}/checklistItems/${checklistItemId}`)
+      return response.data
     }
   }
 }

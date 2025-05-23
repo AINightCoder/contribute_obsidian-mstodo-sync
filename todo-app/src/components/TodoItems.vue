@@ -57,6 +57,42 @@
                 <div class="task-due" v-if="task.dueDateTime">
                   到期: {{ formatDueDate(task.dueDateTime) }}
                 </div>
+                <!-- 添加子任务显示 -->
+                <div class="checklist-items" v-if="task.checklistItems && task.checklistItems.length > 0">
+                  <div 
+                    v-for="item in task.checklistItems" 
+                    :key="item.id"
+                    class="checklist-item"
+                    @click.stop
+                  >
+                    <label class="apple-checkbox small">
+                      <input 
+                        type="checkbox" 
+                        :checked="item.isCompleted" 
+                        @change="toggleChecklistItem(task.id, item)"
+                      />
+                      <span class="checkmark small"></span>
+                    </label>
+                    <span 
+                      :class="{'checklist-item-completed': item.isCompleted}"
+                      @click.stop="editChecklistItem(task.id, item)"
+                    >
+                      {{ item.title }}
+                    </span>
+                    <button 
+                      class="delete-checklist-item" 
+                      @click.stop="deleteChecklistItem(task.id, item.id)"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                  <div class="add-checklist-item" @click.stop="showAddChecklistForm(task.id)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m7-7H5" />
+                    </svg>
+                    添加子任务
+                  </div>
+                </div>
               </div>
               <div class="task-actions">
                 <button class="task-action-btn delete" @click="deleteTask(task)">
@@ -104,6 +140,30 @@
                 <div class="task-due" v-if="task.dueDateTime">
                   到期: {{ formatDueDate(task.dueDateTime) }}
                 </div>
+                <!-- 添加已完成的子任务显示 -->
+                <div class="checklist-items" v-if="task.checklistItems && task.checklistItems.length > 0">
+                  <div 
+                    v-for="item in task.checklistItems" 
+                    :key="item.id"
+                    class="checklist-item"
+                    @click.stop
+                  >
+                    <label class="apple-checkbox small">
+                      <input 
+                        type="checkbox" 
+                        :checked="item.isCompleted" 
+                        @change="toggleChecklistItem(task.id, item)"
+                      />
+                      <span class="checkmark small"></span>
+                    </label>
+                    <span 
+                      :class="{'checklist-item-completed': item.isCompleted}"
+                      @click.stop="editChecklistItem(task.id, item)"
+                    >
+                      {{ item.title }}
+                    </span>
+                  </div>
+                </div>
               </div>
               <div class="task-actions">
                 <button class="task-action-btn delete" @click="deleteTask(task)">
@@ -146,6 +206,47 @@
               class="apple-input"
             />
           </div>
+          
+          <!-- 子任务管理 -->
+          <div class="form-group">
+            <label>子任务</label>
+            <div class="checklist-items-edit">
+              <div 
+                v-for="(item, index) in editedTask.checklistItems" 
+                :key="index"
+                class="checklist-item-edit"
+              >
+                <label class="apple-checkbox">
+                  <input 
+                    type="checkbox" 
+                    v-model="item.isCompleted"
+                  />
+                  <span class="checkmark"></span>
+                </label>
+                <input 
+                  type="text" 
+                  v-model="item.title" 
+                  class="apple-input"
+                  placeholder="子任务标题"
+                />
+                <button 
+                  type="button"
+                  @click="removeChecklistItem(index)"
+                  class="delete-btn"
+                >
+                  删除
+                </button>
+              </div>
+              <button 
+                type="button"
+                @click="addChecklistItemToEdit"
+                class="add-checklist-btn apple-button secondary small"
+              >
+                添加子任务
+              </button>
+            </div>
+          </div>
+          
           <div class="form-group">
             <label class="apple-checkbox">
               <input type="checkbox" v-model="editedTask.isCompleted" />
@@ -167,6 +268,89 @@
               :disabled="!editedTask.title.trim() || isSaving"
             >
               {{ isSaving ? '保存中...' : '保存' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    
+    <!-- 添加子任务对话框 -->
+    <div 
+      class="modal-overlay" 
+      v-if="showAddChecklistModal" 
+      @click.self="cancelAddChecklist"
+    >
+      <div class="modal-container small apple-card">
+        <h3 class="apple-heading">添加子任务</h3>
+        <form @submit.prevent="saveChecklistItem">
+          <div class="form-group">
+            <input 
+              v-model="newChecklistItem" 
+              class="apple-input" 
+              placeholder="输入子任务内容" 
+              required
+              autofocus
+            />
+          </div>
+          <div class="form-actions">
+            <button 
+              type="button" 
+              class="apple-button secondary" 
+              @click="cancelAddChecklist"
+            >
+              取消
+            </button>
+            <button 
+              type="submit" 
+              class="apple-button"
+              :disabled="!newChecklistItem.trim()"
+            >
+              添加
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    
+    <!-- 编辑子任务对话框 -->
+    <div 
+      class="modal-overlay" 
+      v-if="showEditChecklistModal" 
+      @click.self="cancelEditChecklist"
+    >
+      <div class="modal-container small apple-card">
+        <h3 class="apple-heading">编辑子任务</h3>
+        <form @submit.prevent="updateChecklistItem">
+          <div class="form-group">
+            <input 
+              v-model="editedChecklistItem.title" 
+              class="apple-input" 
+              placeholder="输入子任务内容" 
+              required
+              autofocus
+            />
+          </div>
+          <div class="form-group">
+            <label class="apple-checkbox">
+              <input type="checkbox" v-model="editedChecklistItem.isCompleted" />
+              <span class="checkmark"></span>
+              已完成
+            </label>
+          </div>
+          <div class="form-actions">
+            <button 
+              type="button" 
+              class="apple-button secondary" 
+              @click="cancelEditChecklist"
+            >
+              取消
+            </button>
+            <button 
+              type="submit" 
+              class="apple-button"
+              :disabled="!editedChecklistItem.title.trim()"
+            >
+              保存
             </button>
           </div>
         </form>
@@ -203,9 +387,16 @@ export default {
     
     // 编辑任务状态
     const showEditTaskModal = ref(false)
-    const editedTask = ref({ title: '', dueDate: '', isCompleted: false })
+    const editedTask = ref({ title: '', dueDate: '', isCompleted: false, checklistItems: [] })
     const editingTaskId = ref(null)
     const isSaving = ref(false)
+    
+    // 子任务状态
+    const showAddChecklistModal = ref(false)
+    const showEditChecklistModal = ref(false)
+    const currentTaskId = ref(null)
+    const newChecklistItem = ref('')
+    const editedChecklistItem = ref({ id: null, title: '', isCompleted: false })
     
     // 计算属性：未完成任务
     const incompleteTasks = computed(() => {
@@ -320,7 +511,9 @@ export default {
       editedTask.value = {
         title: task.title,
         dueDate: dueDate,
-        isCompleted: task.status === 'completed'
+        isCompleted: task.status === 'completed',
+        // 复制子任务列表
+        checklistItems: task.checklistItems ? [...task.checklistItems] : []
       }
       
       showEditTaskModal.value = true
@@ -349,14 +542,47 @@ export default {
         // 调用API更新
         const updatedTask = await todoApi.tasks.updateTask(props.listId, editingTaskId.value, updateData)
         
+        // 处理子任务更新
+        // 注意：这里简化处理，实际应用中可能需要比较差异进行更精细的更新
+        if (editedTask.value.checklistItems && editedTask.value.checklistItems.length > 0) {
+          // 更新子任务状态变化
+          for (const item of editedTask.value.checklistItems) {
+            if (item.id) { // 现有子任务
+              await todoApi.tasks.updateChecklistItem(
+                props.listId, 
+                editingTaskId.value, 
+                item.id, 
+                { 
+                  title: item.title,
+                  isCompleted: item.isCompleted 
+                }
+              )
+            } else { // 新增子任务
+              await todoApi.tasks.addChecklistItem(
+                props.listId,
+                editingTaskId.value,
+                item.title
+              )
+            }
+          }
+        }
+        
         // 更新本地任务列表
         const taskIndex = tasks.value.findIndex(t => t.id === editingTaskId.value)
         if (taskIndex !== -1) {
-          tasks.value[taskIndex] = { ...tasks.value[taskIndex], ...updatedTask }
+          // 合并更新，保留checklistItems
+          tasks.value[taskIndex] = { 
+            ...tasks.value[taskIndex], 
+            ...updatedTask,
+            checklistItems: editedTask.value.checklistItems
+          }
         }
         
         // 关闭对话框
         showEditTaskModal.value = false
+        
+        // 重新加载任务以获取最新状态
+        loadTasks()
       } catch (error) {
         console.error('保存任务失败:', error)
         alert('无法保存任务，请稍后再试')
@@ -369,7 +595,160 @@ export default {
     const cancelEditTask = () => {
       showEditTaskModal.value = false
       editingTaskId.value = null
-      editedTask.value = { title: '', dueDate: '', isCompleted: false }
+      editedTask.value = { title: '', dueDate: '', isCompleted: false, checklistItems: [] }
+    }
+    
+    // 在编辑界面添加子任务项
+    const addChecklistItemToEdit = () => {
+      if (!editedTask.value.checklistItems) {
+        editedTask.value.checklistItems = []
+      }
+      editedTask.value.checklistItems.push({
+        title: '',
+        isCompleted: false
+      })
+    }
+    
+    // 从编辑界面移除子任务项
+    const removeChecklistItem = (index) => {
+      editedTask.value.checklistItems.splice(index, 1)
+    }
+    
+    // 显示添加子任务表单
+    const showAddChecklistForm = (taskId) => {
+      currentTaskId.value = taskId
+      newChecklistItem.value = ''
+      showAddChecklistModal.value = true
+    }
+    
+    // 取消添加子任务
+    const cancelAddChecklist = () => {
+      showAddChecklistModal.value = false
+      currentTaskId.value = null
+      newChecklistItem.value = ''
+    }
+    
+    // 保存新的子任务
+    const saveChecklistItem = async () => {
+      if (!newChecklistItem.value.trim() || !currentTaskId.value) return
+      
+      try {
+        const item = await todoApi.tasks.addChecklistItem(
+          props.listId,
+          currentTaskId.value,
+          newChecklistItem.value.trim()
+        )
+        
+        // 更新本地数据
+        const taskIndex = tasks.value.findIndex(t => t.id === currentTaskId.value)
+        if (taskIndex !== -1) {
+          if (!tasks.value[taskIndex].checklistItems) {
+            tasks.value[taskIndex].checklistItems = []
+          }
+          tasks.value[taskIndex].checklistItems.push(item)
+        }
+        
+        // 关闭对话框
+        cancelAddChecklist()
+      } catch (error) {
+        console.error('添加子任务失败:', error)
+        alert('添加子任务失败，请稍后再试')
+      }
+    }
+    
+    // 切换子任务状态
+    const toggleChecklistItem = async (taskId, item) => {
+      try {
+        const isCompleted = !item.isCompleted
+        await todoApi.tasks.updateChecklistItem(
+          props.listId,
+          taskId,
+          item.id,
+          { isCompleted }
+        )
+        
+        // 更新本地状态
+        const taskIndex = tasks.value.findIndex(t => t.id === taskId)
+        if (taskIndex !== -1) {
+          const itemIndex = tasks.value[taskIndex].checklistItems.findIndex(i => i.id === item.id)
+          if (itemIndex !== -1) {
+            tasks.value[taskIndex].checklistItems[itemIndex].isCompleted = isCompleted
+          }
+        }
+      } catch (error) {
+        console.error('更新子任务状态失败:', error)
+      }
+    }
+    
+    // 删除子任务
+    const deleteChecklistItem = async (taskId, itemId) => {
+      if (!confirm('确定要删除此子任务吗？')) return
+      
+      try {
+        await todoApi.tasks.deleteChecklistItem(props.listId, taskId, itemId)
+        
+        // 更新本地状态
+        const taskIndex = tasks.value.findIndex(t => t.id === taskId)
+        if (taskIndex !== -1) {
+          const items = tasks.value[taskIndex].checklistItems
+          tasks.value[taskIndex].checklistItems = items.filter(item => item.id !== itemId)
+        }
+      } catch (error) {
+        console.error('删除子任务失败:', error)
+        alert('删除子任务失败，请稍后再试')
+      }
+    }
+    
+    // 显示编辑子任务对话框
+    const editChecklistItem = (taskId, item) => {
+      currentTaskId.value = taskId
+      editedChecklistItem.value = {
+        id: item.id,
+        title: item.title,
+        isCompleted: item.isCompleted
+      }
+      showEditChecklistModal.value = true
+    }
+    
+    // 取消编辑子任务
+    const cancelEditChecklist = () => {
+      showEditChecklistModal.value = false
+      currentTaskId.value = null
+      editedChecklistItem.value = { id: null, title: '', isCompleted: false }
+    }
+    
+    // 更新子任务
+    const updateChecklistItem = async () => {
+      if (!editedChecklistItem.value.title.trim() || !currentTaskId.value) return
+      
+      try {
+        const updatedItem = await todoApi.tasks.updateChecklistItem(
+          props.listId,
+          currentTaskId.value,
+          editedChecklistItem.value.id,
+          {
+            title: editedChecklistItem.value.title.trim(),
+            isCompleted: editedChecklistItem.value.isCompleted
+          }
+        )
+        
+        // 更新本地状态
+        const taskIndex = tasks.value.findIndex(t => t.id === currentTaskId.value)
+        if (taskIndex !== -1) {
+          const itemIndex = tasks.value[taskIndex].checklistItems.findIndex(
+            i => i.id === editedChecklistItem.value.id
+          )
+          if (itemIndex !== -1) {
+            tasks.value[taskIndex].checklistItems[itemIndex] = updatedItem
+          }
+        }
+        
+        // 关闭对话框
+        cancelEditChecklist()
+      } catch (error) {
+        console.error('更新子任务失败:', error)
+        alert('更新子任务失败，请稍后再试')
+      }
     }
     
     // 格式化到期日期
@@ -410,6 +789,11 @@ export default {
       showEditTaskModal,
       editedTask,
       isSaving,
+      showAddChecklistModal,
+      showEditChecklistModal,
+      currentTaskId,
+      newChecklistItem,
+      editedChecklistItem,
       
       loadTasks,
       createTask,
@@ -418,7 +802,17 @@ export default {
       editTask,
       saveTaskEdit,
       cancelEditTask,
-      formatDueDate
+      formatDueDate,
+      addChecklistItemToEdit,
+      removeChecklistItem,
+      showAddChecklistForm,
+      cancelAddChecklist,
+      saveChecklistItem,
+      toggleChecklistItem,
+      deleteChecklistItem,
+      editChecklistItem,
+      cancelEditChecklist,
+      updateChecklistItem
     }
   }
 }
@@ -605,5 +999,116 @@ export default {
 
 .completed-tasks-list {
   animation: fadeIn 0.3s ease;
+}
+
+/* 子任务样式 */
+.checklist-items {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.checklist-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.checklist-item-completed {
+  text-decoration: line-through;
+  color: var(--apple-gray);
+}
+
+.apple-checkbox.small .checkmark {
+  width: 16px;
+  height: 16px;
+}
+
+.apple-checkbox.small .checkmark:after {
+  width: 4px;
+  height: 8px;
+}
+
+.add-checklist-item {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--apple-blue);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.add-checklist-item:hover {
+  text-decoration: underline;
+}
+
+.delete-checklist-item {
+  margin-left: 8px;
+  background: none;
+  border: none;
+  color: var(--apple-gray);
+  cursor: pointer;
+  font-size: 16px;
+  visibility: hidden;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+}
+
+.checklist-item:hover .delete-checklist-item {
+  visibility: visible;
+}
+
+.delete-checklist-item:hover {
+  color: var(--apple-red);
+  opacity: 1;
+}
+
+.modal-container.small {
+  max-width: 350px;
+}
+
+/* 子任务编辑区域 */
+.checklist-items-edit {
+  border: 1px solid #e0e0e0;
+  border-radius: var(--apple-border-radius);
+  padding: 12px;
+  margin-top: 8px;
+}
+
+.checklist-item-edit {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.checklist-item-edit .apple-input {
+  flex: 1;
+  margin: 0 8px;
+  height: 32px;
+  padding: 8px;
+}
+
+.delete-btn {
+  background: none;
+  border: none;
+  color: var(--apple-red);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.add-checklist-btn {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.apple-button.small {
+  font-size: 12px;
+  padding: 6px 10px;
 }
 </style> 
