@@ -234,6 +234,33 @@ class TodoApi {
           // Update方法（PATCH的别名）
           async update(data) {
             return this.patch(data);
+          },
+          
+          // DELETE方法实现
+          async delete() {
+            try {
+              const url = `https://graph.microsoft.com/v1.0${this.endpoint}`;
+              console.log(`Making Graph API DELETE to: ${url}`);
+              
+              const response = await fetch(url, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`
+                }
+              });
+              
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Graph API error (${response.status}): ${errorText}`);
+                throw new Error(`Graph API request failed: ${response.status}`);
+              }
+              
+              // DELETE请求通常返回204 No Content
+              return response.status === 204 ? {} : await response.json();
+            } catch (error) {
+              console.error('Graph API DELETE error:', error);
+              throw error;
+            }
           }
         };
         
@@ -463,6 +490,80 @@ class TodoApi {
     } catch (error) {
       this.logger.error('更新任务失败:', error);
       throw new Error('无法更新Microsoft To Do任务');
+    }
+  }
+  
+  /**
+   * 获取任务的子任务
+   */
+  async getChecklistItems(listId, taskId) {
+    if (!listId || !taskId) {
+      throw new Error('获取子任务需要有效的列表ID和任务ID');
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}/checklistItems`;
+      const response = await client.api(endpoint).get();
+      return response.value;
+    } catch (error) {
+      this.logger.error('获取子任务失败:', error);
+      throw new Error('无法获取Microsoft To Do子任务');
+    }
+  }
+  
+  /**
+   * 添加子任务
+   */
+  async addChecklistItem(listId, taskId, title) {
+    if (!listId || !taskId) {
+      throw new Error('添加子任务需要有效的列表ID和任务ID');
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}/checklistItems`;
+      return await client.api(endpoint).post({ displayName: title });
+    } catch (error) {
+      this.logger.error('添加子任务失败:', error);
+      throw new Error('无法添加Microsoft To Do子任务');
+    }
+  }
+  
+  /**
+   * 更新子任务
+   */
+  async updateChecklistItem(listId, taskId, checklistItemId, data) {
+    if (!listId || !taskId || !checklistItemId) {
+      throw new Error('更新子任务需要有效的列表ID、任务ID和子任务ID');
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}/checklistItems/${checklistItemId}`;
+      return await client.api(endpoint).patch(data);
+    } catch (error) {
+      this.logger.error('更新子任务失败:', error);
+      throw new Error('无法更新Microsoft To Do子任务');
+    }
+  }
+  
+  /**
+   * 删除子任务
+   */
+  async deleteChecklistItem(listId, taskId, checklistItemId) {
+    if (!listId || !taskId || !checklistItemId) {
+      throw new Error('删除子任务需要有效的列表ID、任务ID和子任务ID');
+    }
+    
+    try {
+      const client = await this.getClient();
+      const endpoint = `/me/todo/lists/${listId}/tasks/${taskId}/checklistItems/${checklistItemId}`;
+      await client.api(endpoint).delete();
+      return { success: true };
+    } catch (error) {
+      this.logger.error('删除子任务失败:', error);
+      throw new Error('无法删除Microsoft To Do子任务');
     }
   }
   
@@ -972,6 +1073,59 @@ router.get('/lists/:listId/tasks/delta', async (req, res) => {
   } catch (error) {
     console.error('获取任务增量更新失败:', error);
     res.status(500).json({ message: '获取任务增量更新失败', error: error.message });
+  }
+});
+
+// 获取任务的子任务
+router.get('/lists/:listId/tasks/:taskId/checklistItems', authMiddleware, async (req, res) => {
+  try {
+    const { listId, taskId } = req.params;
+    const items = await todoApi.getChecklistItems(listId, taskId);
+    res.json(items);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// 添加子任务
+router.post('/lists/:listId/tasks/:taskId/checklistItems', authMiddleware, async (req, res) => {
+  try {
+    const { listId, taskId } = req.params;
+    const { title } = req.body;
+    
+    if (!title) {
+      return res.status(400).json({ message: '子任务标题不能为空' });
+    }
+    
+    const newItem = await todoApi.addChecklistItem(listId, taskId, title);
+    res.status(201).json(newItem);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// 更新子任务
+router.patch('/lists/:listId/tasks/:taskId/checklistItems/:checklistItemId', authMiddleware, async (req, res) => {
+  try {
+    const { listId, taskId, checklistItemId } = req.params;
+    const data = req.body;
+    
+    const updatedItem = await todoApi.updateChecklistItem(listId, taskId, checklistItemId, data);
+    res.json(updatedItem);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// 删除子任务
+router.delete('/lists/:listId/tasks/:taskId/checklistItems/:checklistItemId', authMiddleware, async (req, res) => {
+  try {
+    const { listId, taskId, checklistItemId } = req.params;
+    
+    await todoApi.deleteChecklistItem(listId, taskId, checklistItemId);
+    res.status(204).end();
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 

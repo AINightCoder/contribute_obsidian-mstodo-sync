@@ -58,9 +58,9 @@
                   到期: {{ formatDueDate(task.dueDateTime) }}
                 </div>
                 <!-- 添加子任务显示 -->
-                <div class="checklist-items" v-if="task.checklistItems && task.checklistItems.length > 0">
+                <div class="checklist-items">
                   <div 
-                    v-for="item in task.checklistItems" 
+                    v-for="item in task.checklistItems || []" 
                     :key="item.id"
                     class="checklist-item"
                     @click.stop
@@ -74,10 +74,10 @@
                       <span class="checkmark small"></span>
                     </label>
                     <span 
-                      :class="{'checklist-item-completed': item.isCompleted}"
+                      :class="{'checklist-item-completed': item.isCompleted || item.isChecked}"
                       @click.stop="editChecklistItem(task.id, item)"
                     >
-                      {{ item.title }}
+                      {{ item.title || item.displayName }}
                     </span>
                     <button 
                       class="delete-checklist-item" 
@@ -141,9 +141,9 @@
                   到期: {{ formatDueDate(task.dueDateTime) }}
                 </div>
                 <!-- 添加已完成的子任务显示 -->
-                <div class="checklist-items" v-if="task.checklistItems && task.checklistItems.length > 0">
+                <div class="checklist-items">
                   <div 
-                    v-for="item in task.checklistItems" 
+                    v-for="item in task.checklistItems || []" 
                     :key="item.id"
                     class="checklist-item"
                     @click.stop
@@ -157,10 +157,10 @@
                       <span class="checkmark small"></span>
                     </label>
                     <span 
-                      :class="{'checklist-item-completed': item.isCompleted}"
+                      :class="{'checklist-item-completed': item.isCompleted || item.isChecked}"
                       @click.stop="editChecklistItem(task.id, item)"
                     >
-                      {{ item.title }}
+                      {{ item.title || item.displayName }}
                     </span>
                   </div>
                 </div>
@@ -650,6 +650,9 @@ export default {
         
         // 关闭对话框
         cancelAddChecklist()
+        
+        // 重新加载任务以获取最新状态
+        loadTasks()
       } catch (error) {
         console.error('添加子任务失败:', error)
         alert('添加子任务失败，请稍后再试')
@@ -659,12 +662,12 @@ export default {
     // 切换子任务状态
     const toggleChecklistItem = async (taskId, item) => {
       try {
-        const isCompleted = !item.isCompleted
+        const isCompleted = !(item.isCompleted || item.isChecked)
         await todoApi.tasks.updateChecklistItem(
           props.listId,
           taskId,
           item.id,
-          { isCompleted }
+          { isChecked: isCompleted }
         )
         
         // 更新本地状态
@@ -672,7 +675,11 @@ export default {
         if (taskIndex !== -1) {
           const itemIndex = tasks.value[taskIndex].checklistItems.findIndex(i => i.id === item.id)
           if (itemIndex !== -1) {
-            tasks.value[taskIndex].checklistItems[itemIndex].isCompleted = isCompleted
+            if ('isCompleted' in item) {
+              tasks.value[taskIndex].checklistItems[itemIndex].isCompleted = isCompleted
+            } else {
+              tasks.value[taskIndex].checklistItems[itemIndex].isChecked = isCompleted
+            }
           }
         }
       } catch (error) {
@@ -704,8 +711,8 @@ export default {
       currentTaskId.value = taskId
       editedChecklistItem.value = {
         id: item.id,
-        title: item.title,
-        isCompleted: item.isCompleted
+        title: item.title || item.displayName,
+        isCompleted: item.isCompleted || item.isChecked
       }
       showEditChecklistModal.value = true
     }
@@ -727,8 +734,8 @@ export default {
           currentTaskId.value,
           editedChecklistItem.value.id,
           {
-            title: editedChecklistItem.value.title.trim(),
-            isCompleted: editedChecklistItem.value.isCompleted
+            displayName: editedChecklistItem.value.title.trim(),
+            isChecked: editedChecklistItem.value.isCompleted
           }
         )
         

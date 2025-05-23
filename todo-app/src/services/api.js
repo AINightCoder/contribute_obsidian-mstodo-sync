@@ -110,13 +110,13 @@ export const todoApi = {
   tasks: {
     // 获取列表中的所有任务
     getTasks: async (listId) => {
-      const response = await apiClient.get(`/lists/${listId}/tasks`)
+      const response = await apiClient.get(`/lists/${listId}/tasks?$expand=checklistItems`)
       return response.data
     },
     
     // 获取特定任务
     getTask: async (listId, taskId) => {
-      const response = await apiClient.get(`/lists/${listId}/tasks/${taskId}`)
+      const response = await apiClient.get(`/lists/${listId}/tasks/${taskId}?$expand=checklistItems`)
       return response.data
     },
     
@@ -161,9 +161,20 @@ export const todoApi = {
     
     // 更新子任务
     updateChecklistItem: async (listId, taskId, checklistItemId, data) => {
+      // 字段映射 - 确保使用正确的API字段名称
+      const apiData = { ...data };
+      if ('isCompleted' in apiData) {
+        apiData.isChecked = apiData.isCompleted;
+        delete apiData.isCompleted;
+      }
+      if ('title' in apiData) {
+        apiData.displayName = apiData.title;
+        delete apiData.title;
+      }
+      
       const response = await apiClient.patch(
         `/lists/${listId}/tasks/${taskId}/checklistItems/${checklistItemId}`, 
-        data
+        apiData
       )
       return response.data
     },
@@ -171,14 +182,14 @@ export const todoApi = {
     // 完成子任务
     completeChecklistItem: async (listId, taskId, checklistItemId) => {
       return await todoApi.tasks.updateChecklistItem(listId, taskId, checklistItemId, {
-        isCompleted: true
+        isChecked: true
       })
     },
     
     // 取消完成子任务
     uncompleteChecklistItem: async (listId, taskId, checklistItemId) => {
       return await todoApi.tasks.updateChecklistItem(listId, taskId, checklistItemId, {
-        isCompleted: false
+        isChecked: false
       })
     },
     
