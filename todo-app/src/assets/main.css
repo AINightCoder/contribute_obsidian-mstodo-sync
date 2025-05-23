@@ -1,0 +1,153 @@
+/* 苹果风格CSS变量 */
+:root {
+  --apple-blue: #0071e3;
+  --apple-blue-hover: #0077ed;
+  --apple-red: #ff3b30;
+  --apple-green: #34c759;
+  --apple-orange: #ff9500;
+  --apple-gray: #8e8e93;
+  --apple-light-gray: #f5f5f7;
+  --apple-border-radius: 10px;
+  --apple-button-radius: 980px;
+  --apple-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  --apple-text: #1d1d1f;
+  --apple-text-secondary: #86868b;
+}
+
+/* 基础样式 */
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--apple-text);
+}
+
+/* 通用容器 */
+.apple-container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* 卡片样式 */
+.apple-card {
+  background-color: white;
+  border-radius: var(--apple-border-radius);
+  box-shadow: var(--apple-shadow);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+/* 按钮样式 */
+.apple-button {
+  background-color: var(--apple-blue);
+  color: white;
+  border: none;
+  border-radius: var(--apple-button-radius);
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.apple-button:hover {
+  background-color: var(--apple-blue-hover);
+}
+
+.apple-button.secondary {
+  background-color: transparent;
+  color: var(--apple-blue);
+  border: 1px solid var(--apple-blue);
+}
+
+.apple-button.secondary:hover {
+  background-color: rgba(0, 113, 227, 0.1);
+}
+
+.apple-button.danger {
+  background-color: var(--apple-red);
+}
+
+/* 输入框样式 */
+.apple-input {
+  width: 100%;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 16px;
+  transition: border-color 0.2s ease;
+}
+
+.apple-input:focus {
+  border-color: var(--apple-blue);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15);
+}
+
+/* 标题样式 */
+.apple-heading {
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--apple-text);
+}
+
+/* 复选框样式 */
+.apple-checkbox {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.apple-checkbox input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.apple-checkbox .checkmark {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #d2d2d7;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  transition: all 0.2s ease;
+}
+
+.apple-checkbox input:checked + .checkmark {
+  background-color: var(--apple-blue);
+  border-color: var(--apple-blue);
+}
+
+.apple-checkbox .checkmark:after {
+  content: "";
+  width: 6px;
+  height: 12px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  display: none;
+}
+
+.apple-checkbox input:checked + .checkmark:after {
+  display: block;
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+/* Todo项目完成状态样式 */
+.todo-completed {
+  text-decoration: line-through;
+  color: var(--apple-gray);
+} 
