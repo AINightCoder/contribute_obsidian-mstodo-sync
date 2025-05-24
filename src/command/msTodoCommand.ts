@@ -392,8 +392,7 @@ async function tryGetFromCache(
 
 async function getDeltaCache(plugin: MsTodoSync) {
     // 使用与 msToDoActions.ts 相同的缓存路径格式
-    const pluginId = plugin.manifest.id;
-    const cachePath = `${plugin.app.vault.configDir}/plugins/${pluginId}/mstd-tasks-delta.json`;
+    const cachePath = 'meta/mstd-tasks-delta.json';
     const adapter: DataAdapter = plugin.app.vault.adapter;
     let cachedTasksDelta: TasksDeltaCollection | undefined;
 
@@ -430,10 +429,12 @@ export async function getTaskDelta(todoApi: TodoApi, listId: string | undefined,
             return;
         }
 
-        // 使用与 msToDoActions.ts 相同的缓存路径格式
-        const pluginId = plugin.manifest.id;
-        const cachePath = `${plugin.app.vault.configDir}/plugins/${pluginId}/mstd-tasks-delta.json`;
+        // 修改缓存路径为Obsidian根目录下的meta目录
+        const cachePath = 'meta/mstd-tasks-delta.json';
         const adapter: DataAdapter = plugin.app.vault.adapter;
+        
+        // 确保meta目录存在
+        await ensureMetaDirectoryExists(plugin, logger);
         
         // 如果指定重置或缓存路径不存在，则删除缓存
         if (reset && await adapter.exists(cachePath)) {
@@ -753,19 +754,19 @@ export async function getAllTasksInList(
 
     // 修复: 从 ListsDeltaCollection 中正确获取任务
     // 首先找到匹配的列表
-    const targetList = cachedTasksDelta.allLists?.find(list => list.listId === listId);
+    const targetList = (cachedTasksDelta as any).allLists?.find((list: any) => list.listId === listId);
     if (!targetList) {
         userNotice.showMessage('List not found in cache');
         return;
     }
 
     // 对任务进行排序
-    targetList.allTasks.sort((a, b) => (a.status === 'completed' ? 1 : -1));
+    targetList.allTasks.sort((a: any, b: any) => (a.status === 'completed' ? 1 : -1));
 
     // 处理任务
     const lines = targetList.allTasks
-        .filter((task) => task.status !== 'completed')
-        .map((task) => {
+        .filter((task: any) => task.status !== 'completed')
+        .map((task: any) => {
             const formattedCreateDate = globalThis
                 .moment(task.createdDateTime)
                 .format(settings.displayOptions_DateFormat);
@@ -790,7 +791,7 @@ export async function getAllTasksInList(
             if (task.body?.content && withBody) {
                 // If the body has multiple lines then indent slightly on a new line.
                 const bodyLines = task.body.content.split('\r\n');
-                const newBody = bodyLines.map((line, index) => `  ${stripHtml(line).trimEnd()}`);
+                const newBody = bodyLines.map((line: string, index: number) => `  ${stripHtml(line).trimEnd()}`);
                 return `- [${done}] ${task.title}  ${createDate} ${blockId}\n${newBody.join('\n')}`.trimEnd();
             }
 
@@ -897,5 +898,22 @@ ${lines?.join('\n')}
         editor.replaceSelection(segments);
     } else {
         return segments;
+    }
+}
+
+/**
+ * 确保meta目录存在，不存在则创建
+ */
+async function ensureMetaDirectoryExists(plugin: MsTodoSync, logger: any): Promise<void> {
+    try {
+        const adapter = plugin.app.vault.adapter;
+        const dirExists = await adapter.exists('meta');
+        if (!dirExists) {
+            // 创建meta目录
+            await adapter.mkdir('meta');
+            logger.info('Created meta directory in vault root');
+        }
+    } catch (error) {
+        logger.error('Error ensuring meta directory exists:', error);
     }
 }

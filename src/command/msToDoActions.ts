@@ -32,12 +32,30 @@ export class MsTodoActions {
         this.plugin = plugin;
         this.todoApi = todoApi;
         
-        // 修改缓存路径使用 pluginId 而不是 dir，避免路径问题
-        const pluginId = this.plugin.manifest.id;
-        // 确保使用统一的缓存位置 - 使用 configDir 而非 dir
-        this.deltaCachePath = `${this.plugin.app.vault.configDir}/plugins/${pluginId}/mstd-tasks-delta.json`;
+        // 修改缓存路径为Obsidian根目录下的meta目录
+        this.deltaCachePath = 'meta/mstd-tasks-delta.json';
         
         this.logger.info(`Initialized MsTodoActions with delta cache path: ${this.deltaCachePath}`);
+        
+        // 确保meta目录存在
+        this.ensureMetaDirectoryExists();
+    }
+
+    /**
+     * 确保meta目录存在，不存在则创建
+     */
+    private async ensureMetaDirectoryExists(): Promise<void> {
+        try {
+            const adapter = this.plugin.app.vault.adapter;
+            const dirExists = await adapter.exists('meta');
+            if (!dirExists) {
+                // 创建meta目录
+                await adapter.mkdir('meta');
+                this.logger.info('Created meta directory in vault root');
+            }
+        } catch (error) {
+            this.logger.error('Error ensuring meta directory exists:', error);
+        }
     }
 
     /**
