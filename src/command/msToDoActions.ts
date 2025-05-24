@@ -255,8 +255,10 @@ export class MsTodoActions {
         if (!cachedTasksDelta) {
             return { list: undefined, task: undefined };
         }
-        for (const list of cachedTasksDelta.allLists) {
-            const task = list.allTasks.find((t) => t.id === taskId);
+        
+        // 修复类型注解问题
+        for (const list of (cachedTasksDelta as any).allLists) {
+            const task = list.allTasks.find((t: any) => t.id === taskId);
             if (task) {
                 return { list, task };
             }
@@ -638,6 +640,10 @@ export class MsTodoActions {
 
         // Single call to update the cache using the delta link.
         const cachedTasksDelta = await this.getTaskDelta();
+        if (!cachedTasksDelta) {
+            this.userNotice.showMessage('无法获取任务缓存数据');
+            return;
+        }
 
         const split = source.split('\n');
         const modifiedPage = await Promise.all(
@@ -657,8 +663,19 @@ export class MsTodoActions {
                 if (todo.hasBlockLink && todo.hasId) {
                     this.logger.debug(`Updating Task: ${todo.title}`);
 
-                    // Load from the delta cache file and pull the task from the cache.
-                    const returnedTask = cachedTasksDelta?.allTasks.find((task) => task.id === todo.id);
+                    // 修复从缓存中查找任务的逻辑
+                    let returnedTask: TodoTask | undefined;
+                    
+                    // 遍历所有列表，找到匹配的任务
+                    for (const list of (cachedTasksDelta as any).allLists) {
+                        if (!list.allTasks) continue;
+                        
+                        const task = list.allTasks.find((t: any) => t.id === todo.id);
+                        if (task) {
+                            returnedTask = task;
+                            break;
+                        }
+                    }
 
                     // Update if there is only a difference.
                     if (returnedTask && !todo.equals(returnedTask)) {
@@ -925,42 +942,20 @@ export class MsTodoActions {
             markdownContent += `> 最后更新时间：${new Date().toLocaleString()}\n\n`;
 
             // 按列表组织任务
-            for (const list of (cachedTasksDelta as any).allLists) {
+            const allLists = (cachedTasksDelta as any).allLists || [];
+            for (const list of allLists) {
                 if (!list.name || !list.allTasks || list.allTasks.length === 0) {
                     continue;
                 }
                 
                 markdownContent += `## ${list.name}\n\n`;
                 
-                // 分类存储父任务和子任务
-                const parentTasks: Record<string, any> = {};
-                const childrenTasks: Record<string, any[]> = {};
+                // 任务分类：过滤掉已删除的任务
+                const tasks = (list.allTasks || []).filter((task: any) => task && !task['@removed']);
                 
-                // 找出所有父任务和子任务
-                for (const task of list.allTasks) {
-                    // 跳过被删除的任务或无效任务
-                    if (!task.id || (task as any)['@removed']) {
-                        continue;
-                    }
-                    
-                    // Microsoft Graph API 的 TodoTask 实际数据中可能包含 parentId
-                    const parentId = (task as any).parentId;
-                    
-                    if (parentId) {
-                        // 这是一个子任务
-                        if (!childrenTasks[parentId]) {
-                            childrenTasks[parentId] = [];
-                        }
-                        childrenTasks[parentId].push(task);
-                    } else {
-                        // 这是一个父任务
-                        parentTasks[task.id] = task;
-                    }
-                }
-                
-                // 按父任务排序，然后处理每个父任务及其子任务
-                const sortedParentTasks = Object.values(parentTasks).sort((a, b) => {
-                    // 简化完成状态检查逻辑
+                // 按任务排序：未完成的任务排在前面
+                const sortedTasks = [...tasks].sort((a: any, b: any) => {
+                    // 按照完成状态和标题排序
                     const aCompleted = this.isTaskCompleted(a);
                     const bCompleted = this.isTaskCompleted(b);
                     
@@ -969,39 +964,26 @@ export class MsTodoActions {
                     return (a.title || '').localeCompare(b.title || '');
                 });
                 
-                for (const parentTask of sortedParentTasks) {
-                    // 添加父任务
-                    const isCompleted = this.isTaskCompleted(parentTask) ? 'x' : ' ';
-                    markdownContent += `- [${isCompleted}] ${parentTask.title || '无标题任务'}\n`;
+                // 处理每个任务及其子任务(checklistItems)
+                for (const task of sortedTasks) {
+                    if (!task.id) continue;
+                    
+                    // 添加主任务
+                    const isCompleted = this.isTaskCompleted(task) ? 'x' : ' ';
+                    markdownContent += `- [${isCompleted}] ${task.title || '无标题任务'}\n`;
                     
                     // 添加任务正文（如果有）
-                    if (parentTask.body?.content && parentTask.body.content.trim() !== '') {
-                        const bodyContent = parentTask.body.content.replace(/\n/g, '\n  ');
+                    if (task.body?.content && task.body.content.trim() !== '') {
+                        const bodyContent = task.body.content.replace(/\n/g, '\n  ');
                         markdownContent += `  > ${bodyContent}\n`;
                     }
                     
-                    // 添加子任务（如果有）
-                    const children = childrenTasks[parentTask.id || ''] || [];
-                    if (children.length > 0) {
-                        // 对子任务进行排序
-                        children.sort((a, b) => {
-                            const aCompleted = this.isTaskCompleted(a);
-                            const bCompleted = this.isTaskCompleted(b);
-                            
-                            if (aCompleted && !bCompleted) return 1;
-                            if (!aCompleted && bCompleted) return -1;
-                            return (a.title || '').localeCompare(b.title || '');
-                        });
-                        
-                        for (const childTask of children) {
-                            const isChildCompleted = this.isTaskCompleted(childTask) ? 'x' : ' ';
-                            markdownContent += `  - [${isChildCompleted}] ${childTask.title || '无标题子任务'}\n`;
-                            
-                            // 添加子任务正文（如果有）
-                            if (childTask.body?.content && childTask.body.content.trim() !== '') {
-                                const bodyContent = childTask.body.content.replace(/\n/g, '\n    ');
-                                markdownContent += `    > ${bodyContent}\n`;
-                            }
+                    // 添加子任务(checklistItems)
+                    if (task.checklistItems && task.checklistItems.length > 0) {
+                        for (const item of task.checklistItems) {
+                            const isItemCompleted = item.isChecked || item.isCompleted ? 'x' : ' ';
+                            const itemTitle = item.displayName || item.title || '无标题子任务';
+                            markdownContent += `  - [${isItemCompleted}] ${itemTitle}\n`;
                         }
                     }
                     
