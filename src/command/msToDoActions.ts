@@ -941,6 +941,41 @@ export class MsTodoActions {
     }
 
     /**
+     * 格式化日期为YYYY-MM-DD格式
+     * @param dateTimeStr ISO格式的日期字符串
+     * @returns 格式化后的日期字符串，如果解析失败则返回空字符串
+     */
+    private formatDueDate(dateTimeStr: string): string {
+        try {
+            const dueDate = new Date(dateTimeStr);
+            return `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+        } catch (error) {
+            this.logger.debug(`无法解析日期: ${dateTimeStr}`, error);
+            return '';
+        }
+    }
+    
+    /**
+     * 获取优先级对应的图标
+     * @param importance 优先级（high, normal, low）
+     * @returns 优先级图标
+     */
+    private getImportanceIcon(importance: string): string {
+        if (!importance) return '';
+        
+        switch (importance.toLowerCase()) {
+            case 'high':
+                return this.settings.displayOptions_TaskImportance_High || '⏫';
+            case 'normal':
+                return this.settings.displayOptions_TaskImportance_Normal || '🔼';
+            case 'low':
+                return this.settings.displayOptions_TaskImportance_Low || '🔽';
+            default:
+                return '';
+        }
+    }
+
+    /**
      * 从缓存中读取所有任务数据，并以Markdown格式写入到指定文件
      * 
      * @returns {Promise<void>} Promise对象，表示操作完成
@@ -988,7 +1023,27 @@ export class MsTodoActions {
                     
                     // 添加主任务
                     const isCompleted = this.isTaskCompleted(task) ? 'x' : ' ';
-                    markdownContent += `- [${isCompleted}] ${task.title || '无标题任务'}\n`;
+                    
+                    // 任务标题
+                    let taskTitle = task.title || '无标题任务';
+                    
+                    // 添加截止日期（如果有）
+                    if (task.dueDateTime && task.dueDateTime.dateTime) {
+                        const formattedDate = this.formatDueDate(task.dueDateTime.dateTime);
+                        if (formattedDate) {
+                            taskTitle += ` 📅 ${formattedDate}`;
+                        }
+                    }
+                    
+                    // 添加优先级（如果有）
+                    if (task.importance) {
+                        const importanceIcon = this.getImportanceIcon(task.importance);
+                        if (importanceIcon) {
+                            taskTitle += ` ${importanceIcon}`;
+                        }
+                    }
+                    
+                    markdownContent += `- [${isCompleted}] ${taskTitle}\n`;
                     
                     // 添加任务正文（如果有）
                     if (task.body?.content && task.body.content.trim() !== '') {
@@ -1000,7 +1055,24 @@ export class MsTodoActions {
                     if (task.checklistItems && task.checklistItems.length > 0) {
                         for (const item of task.checklistItems) {
                             const isItemCompleted = item.isChecked || item.isCompleted ? 'x' : ' ';
-                            const itemTitle = item.displayName || item.title || '无标题子任务';
+                            let itemTitle = item.displayName || item.title || '无标题子任务';
+                            
+                            // 添加截止日期（如果子任务有）
+                            if (item.dueDateTime && item.dueDateTime.dateTime) {
+                                const formattedDate = this.formatDueDate(item.dueDateTime.dateTime);
+                                if (formattedDate) {
+                                    itemTitle += ` 📅 ${formattedDate}`;
+                                }
+                            }
+                            
+                            // 添加优先级（如果子任务有）
+                            if (item.importance) {
+                                const importanceIcon = this.getImportanceIcon(item.importance);
+                                if (importanceIcon) {
+                                    itemTitle += ` ${importanceIcon}`;
+                                }
+                            }
+                            
                             markdownContent += `  - [${isItemCompleted}] ${itemTitle}\n`;
                         }
                     }
