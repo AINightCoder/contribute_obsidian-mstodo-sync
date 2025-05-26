@@ -1076,10 +1076,14 @@ export class MsTodoActions {
                 // 获取列表标签
                 const listTag = this.getTagFromListName(list.name);
                 
-                markdownContent += `## ${list.name}\n\n`;
+                // 获取该列表的默认截止日期
+                const defaultDueDate = this.getDefaultDueDate(list.name);
                 
                 // 任务分类：过滤掉已删除的任务
                 const tasks = (list.allTasks || []).filter((task: any) => task && !task['@removed']);
+                
+                // 使用简单的列表标题，不添加汇总信息
+                markdownContent += `## ${list.name}\n\n`;
                 
                 // 按任务排序：未完成的任务排在前面
                 const sortedTasks = [...tasks].sort((a: any, b: any) => {
@@ -1091,9 +1095,6 @@ export class MsTodoActions {
                     if (!aCompleted && bCompleted) return -1;
                     return (a.title || '').localeCompare(b.title || '');
                 });
-                
-                // 获取该列表的默认截止日期
-                const defaultDueDate = this.getDefaultDueDate(list.name);
                 
                 // 处理每个任务及其子任务(checklistItems)
                 for (const task of sortedTasks) {
@@ -1118,6 +1119,14 @@ export class MsTodoActions {
                     // 如果没有截止日期，使用默认截止日期（基于列表名称）
                     if (!hasDueDate && defaultDueDate) {
                         taskTitle += ` 📅 ${defaultDueDate}`;
+                    }
+                    
+                    // 添加完成日期（如果任务已完成）
+                    if (task.completedDateTime && task.completedDateTime.dateTime) {
+                        const completedDate = this.formatDueDate(task.completedDateTime.dateTime);
+                        if (completedDate) {
+                            taskTitle += ` ✅ ${completedDate}`;
+                        }
                     }
                     
                     // 添加优先级（如果有）
