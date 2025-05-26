@@ -545,31 +545,39 @@ export async function getTaskDelta(todoApi: TodoApi, listId: string | undefined,
 // Function to merge collections
 function mergeCollections(col1: TodoTask[], col2: TodoTask[]): TodoTask[] {
     const map = new Map<string, TodoTask>();
+    const logger = logging.getLogger('mstodo-sync.command.mergeCollections');
+    
+    // 首先添加col1中的任务到map
+    for (const item of col1) {
+        if (item.id) {
+            map.set(item.id, item);
+        }
+    }
 
-    // Helper function to add items to the map
-    function addToMap(item: TodoTask) {
-        if (item.id && item.lastModifiedDateTime) {
+    // 然后处理col2中的任务
+    for (const item of col2) {
+        if (!item.id) continue;
+
+        // 检查是否是被删除的任务
+        if ((item as any)['@removed']) {
+            // 如果是删除的任务，从map中移除
+            logger.info(`Removing deleted task: ${item.id}`);
+            map.delete(item.id);
+        } else {
+            // 如果是新任务或更新的任务，检查最后修改时间
             const existingItem = map.get(item.id);
-            // If there is no last modified then just use the current item.
-            if (
-                !existingItem ||
-                new Date(item.lastModifiedDateTime) > new Date(existingItem.lastModifiedDateTime ?? 0)
-            ) {
+            
+            if (!existingItem || 
+                (item.lastModifiedDateTime && 
+                 (!existingItem.lastModifiedDateTime || 
+                  new Date(item.lastModifiedDateTime) > new Date(existingItem.lastModifiedDateTime)))) {
+                // 更新map中的任务
                 map.set(item.id, item);
             }
         }
     }
 
-    // Add items from both collections to the map
-    for (const item of col1) {
-        addToMap(item);
-    }
-
-    for (const item of col2) {
-        addToMap(item);
-    }
-
-    // Convert map values back to an array
+    // 转换回数组
     return Array.from(map.values());
 }
 

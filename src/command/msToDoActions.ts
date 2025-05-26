@@ -822,13 +822,27 @@ export class MsTodoActions {
             }
 
             if (list.allTasks.length > 0) {
-                // this.logger.debug('Cache Details', {
-                //     currentCacheCount: list.allTasks.length,
-                //     returnedCount: returnedTask.allTasks.length,
-                // });
+                // 记录返回的任务中被删除的任务数量
+                const deletedTasksCount = returnedTask.allTasks.filter((task: any) => task && task['@removed']).length;
+                if (deletedTasksCount > 0) {
+                    this.logger.info(`API返回了${deletedTasksCount}个已删除的任务`);
+                    // 列出被删除的任务ID，帮助调试
+                    const deletedTaskIds = returnedTask.allTasks
+                        .filter((task: any) => task && task['@removed'])
+                        .map((task: any) => task.id)
+                        .join(', ');
+                    this.logger.debug(`被删除的任务ID: ${deletedTaskIds}`);
+                }
 
+                const beforeMergeCount = list.allTasks.length;
                 list.allTasks = this.mergeCollections(list.allTasks, returnedTask.allTasks);
-                // this.logger.debug('Cache Details', { currentCacheCount: list.allTasks.length });
+                const afterMergeCount = list.allTasks.length;
+
+                this.logger.info(`列表 "${list.name}" - 合并前任务数: ${beforeMergeCount}, 合并后: ${afterMergeCount}`);
+                if (beforeMergeCount > afterMergeCount) {
+                    this.logger.info(`删除了 ${beforeMergeCount - afterMergeCount} 个任务`);
+                }
+                
                 list.deltaLink = returnedTask.deltaLink;
             } else {
                 this.logger.info('First run or there was a reset, loading delta cache');
@@ -856,30 +870,37 @@ export class MsTodoActions {
     private mergeCollections(col1: TodoTask[], col2: TodoTask[]): TodoTask[] {
         const map = new Map<string, TodoTask>();
 
-        // Helper function to add items to the map
-        function addToMap(item: TodoTask) {
-            if (item.id && item.lastModifiedDateTime) {
+        // 首先添加col1中的任务到map
+        for (const item of col1) {
+            if (item.id) {
+                map.set(item.id, item);
+            }
+        }
+
+        // 然后处理col2中的任务
+        for (const item of col2) {
+            if (!item.id) continue;
+
+            // 检查是否是被删除的任务
+            if ((item as any)['@removed']) {
+                // 如果是删除的任务，从map中移除
+                this.logger.info(`Removing deleted task: ${item.id}`);
+                map.delete(item.id);
+            } else {
+                // 如果是新任务或更新的任务，检查最后修改时间
                 const existingItem = map.get(item.id);
-                // If there is no last modified then just use the current item.
-                if (
-                    !existingItem ||
-                    new Date(item.lastModifiedDateTime) > new Date(existingItem.lastModifiedDateTime ?? 0)
-                ) {
+                
+                if (!existingItem || 
+                    (item.lastModifiedDateTime && 
+                     (!existingItem.lastModifiedDateTime || 
+                      new Date(item.lastModifiedDateTime) > new Date(existingItem.lastModifiedDateTime)))) {
+                    // 更新map中的任务
                     map.set(item.id, item);
                 }
             }
         }
 
-        // Add items from both collections to the map
-        for (const item of col1) {
-            addToMap(item);
-        }
-
-        for (const item of col2) {
-            addToMap(item);
-        }
-
-        // Convert map values back to an array
+        // 转换回数组
         return Array.from(map.values());
     }
 
@@ -976,10 +997,19 @@ export class MsTodoActions {
     }
 
     /**
-     * 从缓存中读取所有任务数据，并以Markdown格式写入到指定文件
+     * 将列表名称转换为有效的标签名称
+     * 处理空格和特殊字符
      * 
-     * @returns {Promise<void>} Promise对象，表示操作完成
+     * @param listName 列表名称
+     * @returns 有效的标签名称
      */
+    private getTagFromListName(listName: string): string {
+        if (!listName) return '';
+        
+        // 直接返回原始列表名称，因为Obsidian标签支持中文和空格
+        return `#${listName}`;
+    }
+    
     public async generateTaskSummary(): Promise<void> {
         try {
             // 获取所有任务数据（从缓存）
@@ -1000,6 +1030,9 @@ export class MsTodoActions {
                 if (!list.name || !list.allTasks || list.allTasks.length === 0) {
                     continue;
                 }
+                
+                // 获取列表标签
+                const listTag = this.getTagFromListName(list.name);
                 
                 markdownContent += `## ${list.name}\n\n`;
                 
@@ -1043,6 +1076,11 @@ export class MsTodoActions {
                         }
                     }
                     
+                    // 添加列表标签
+                    if (listTag) {
+                        taskTitle += ` ${listTag}`;
+                    }
+                    
                     markdownContent += `- [${isCompleted}] ${taskTitle}\n`;
                     
                     // 添加任务正文（如果有）
@@ -1071,6 +1109,11 @@ export class MsTodoActions {
                                 if (importanceIcon) {
                                     itemTitle += ` ${importanceIcon}`;
                                 }
+                            }
+                            
+                            // 添加列表标签（子任务也添加相同的标签）
+                            if (listTag) {
+                                itemTitle += ` ${listTag}`;
                             }
                             
                             markdownContent += `  - [${isItemCompleted}] ${itemTitle}\n`;
