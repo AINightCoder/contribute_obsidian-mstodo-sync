@@ -1010,6 +1010,48 @@ export class MsTodoActions {
         return `#${listName}`;
     }
     
+    /**
+     * 根据任务列表名称获取默认截止日期
+     * @param listName 列表名称
+     * @returns 格式化的默认截止日期字符串(YYYY-MM-DD)
+     */
+    private getDefaultDueDate(listName: string): string {
+        if (!listName) return '';
+        
+        const today = new Date();
+        let dueDate: Date = new Date();
+        
+        if (listName.includes('10年OKR')) {
+            // 获取未来最近的以0结尾的年份
+            const currentYear = today.getFullYear();
+            const nextDecadeYear = Math.ceil(currentYear / 10) * 10;
+            dueDate = new Date(nextDecadeYear, 0, 1); // 1月1日
+        } else if (listName.includes('年OKR')) {
+            // 当年12月30日
+            dueDate = new Date(today.getFullYear(), 11, 30); // 12月30日
+        } else if (listName.includes('月OKR')) {
+            // 当月30日
+            const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+            const day = Math.min(30, lastDayOfMonth); // 确保不超过月份的最后一天
+            dueDate = new Date(today.getFullYear(), today.getMonth(), day);
+        } else if (listName.includes('周OKR')) {
+            // 当周周日
+            const dayOfWeek = today.getDay(); // 0是周日，1是周一，以此类推
+            const daysUntilSunday = dayOfWeek === 0 ? 7 : 7 - dayOfWeek;
+            dueDate = new Date(today);
+            dueDate.setDate(today.getDate() + daysUntilSunday);
+        } else if (listName.includes('任务')) {
+            // 当天
+            dueDate = today;
+        } else {
+            // 其他列表没有默认截止日期
+            return '';
+        }
+        
+        // 格式化为YYYY-MM-DD
+        return `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+    }
+    
     public async generateTaskSummary(): Promise<void> {
         try {
             // 获取所有任务数据（从缓存）
@@ -1050,6 +1092,9 @@ export class MsTodoActions {
                     return (a.title || '').localeCompare(b.title || '');
                 });
                 
+                // 获取该列表的默认截止日期
+                const defaultDueDate = this.getDefaultDueDate(list.name);
+                
                 // 处理每个任务及其子任务(checklistItems)
                 for (const task of sortedTasks) {
                     if (!task.id) continue;
@@ -1061,11 +1106,18 @@ export class MsTodoActions {
                     let taskTitle = task.title || '无标题任务';
                     
                     // 添加截止日期（如果有）
+                    let hasDueDate = false;
                     if (task.dueDateTime && task.dueDateTime.dateTime) {
                         const formattedDate = this.formatDueDate(task.dueDateTime.dateTime);
                         if (formattedDate) {
                             taskTitle += ` 📅 ${formattedDate}`;
+                            hasDueDate = true;
                         }
+                    }
+                    
+                    // 如果没有截止日期，使用默认截止日期（基于列表名称）
+                    if (!hasDueDate && defaultDueDate) {
+                        taskTitle += ` 📅 ${defaultDueDate}`;
                     }
                     
                     // 添加优先级（如果有）
@@ -1096,11 +1148,18 @@ export class MsTodoActions {
                             let itemTitle = item.displayName || item.title || '无标题子任务';
                             
                             // 添加截止日期（如果子任务有）
+                            let hasItemDueDate = false;
                             if (item.dueDateTime && item.dueDateTime.dateTime) {
                                 const formattedDate = this.formatDueDate(item.dueDateTime.dateTime);
                                 if (formattedDate) {
                                     itemTitle += ` 📅 ${formattedDate}`;
+                                    hasItemDueDate = true;
                                 }
+                            }
+                            
+                            // 对于子任务，如果没有截止日期，也使用列表默认截止日期
+                            if (!hasItemDueDate && defaultDueDate) {
+                                itemTitle += ` 📅 ${defaultDueDate}`;
                             }
                             
                             // 添加优先级（如果子任务有）
