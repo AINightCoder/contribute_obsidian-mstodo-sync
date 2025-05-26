@@ -1145,35 +1145,8 @@ export class MsTodoActions {
                     if (task.checklistItems && task.checklistItems.length > 0) {
                         for (const item of task.checklistItems) {
                             const isItemCompleted = item.isChecked || item.isCompleted ? 'x' : ' ';
-                            let itemTitle = item.displayName || item.title || '无标题子任务';
-                            
-                            // 添加截止日期（如果子任务有）
-                            let hasItemDueDate = false;
-                            if (item.dueDateTime && item.dueDateTime.dateTime) {
-                                const formattedDate = this.formatDueDate(item.dueDateTime.dateTime);
-                                if (formattedDate) {
-                                    itemTitle += ` 📅 ${formattedDate}`;
-                                    hasItemDueDate = true;
-                                }
-                            }
-                            
-                            // 对于子任务，如果没有截止日期，也使用列表默认截止日期
-                            if (!hasItemDueDate && defaultDueDate) {
-                                itemTitle += ` 📅 ${defaultDueDate}`;
-                            }
-                            
-                            // 添加优先级（如果子任务有）
-                            if (item.importance) {
-                                const importanceIcon = this.getImportanceIcon(item.importance);
-                                if (importanceIcon) {
-                                    itemTitle += ` ${importanceIcon}`;
-                                }
-                            }
-                            
-                            // 添加列表标签（子任务也添加相同的标签）
-                            if (listTag) {
-                                itemTitle += ` ${listTag}`;
-                            }
+                            // 子任务只显示基本内容，不显示标记
+                            const itemTitle = item.displayName || item.title || '无标题子任务';
                             
                             markdownContent += `  - [${isItemCompleted}] ${itemTitle}\n`;
                         }
