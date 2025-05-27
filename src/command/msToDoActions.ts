@@ -1144,12 +1144,6 @@ export class MsTodoActions {
                     
                     markdownContent += `- [${isCompleted}] ${taskTitle}\n`;
                     
-                    // 添加任务正文（如果有）
-                    if (task.body?.content && task.body.content.trim() !== '') {
-                        const bodyContent = task.body.content.replace(/\n/g, '\n  ');
-                        markdownContent += `  > ${bodyContent}\n`;
-                    }
-                    
                     // 添加子任务(checklistItems)
                     if (task.checklistItems && task.checklistItems.length > 0) {
                         for (const item of task.checklistItems) {
@@ -1159,6 +1153,12 @@ export class MsTodoActions {
                             
                             markdownContent += `  - [${isItemCompleted}] ${itemTitle}\n`;
                         }
+                    }
+                                        
+                    // 添加任务正文（如果有）
+                    if (task.body?.content && task.body.content.trim() !== '') {
+                        const bodyContent = task.body.content.replace(/\n/g, '\n  ');
+                        markdownContent += `> ${bodyContent}`;
                     }
                     
                     // 任务之间添加一个空行
