@@ -33,7 +33,7 @@ export class MsTodoActions {
         this.todoApi = todoApi;
         
         // 修改缓存路径为Obsidian根目录下的meta目录
-        this.deltaCachePath = 'meta/mstd-tasks-delta.json';
+        this.deltaCachePath = '.meta/mstd-tasks-delta.json';
         
         this.logger.info(`Initialized MsTodoActions with delta cache path: ${this.deltaCachePath}`);
         

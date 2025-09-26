@@ -392,7 +392,7 @@ async function tryGetFromCache(
 
 async function getDeltaCache(plugin: MsTodoSync) {
     // 使用与 msToDoActions.ts 相同的缓存路径格式
-    const cachePath = 'meta/mstd-tasks-delta.json';
+    const cachePath = '.meta/mstd-tasks-delta.json';
     const adapter: DataAdapter = plugin.app.vault.adapter;
     let cachedTasksDelta: TasksDeltaCollection | undefined;
 
@@ -430,7 +430,7 @@ export async function getTaskDelta(todoApi: TodoApi, listId: string | undefined,
         }
 
         // 修改缓存路径为Obsidian根目录下的meta目录
-        const cachePath = 'meta/mstd-tasks-delta.json';
+        const cachePath = '.meta/mstd-tasks-delta.json';
         const adapter: DataAdapter = plugin.app.vault.adapter;
         
         // 确保meta目录存在
